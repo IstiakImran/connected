@@ -1,6 +1,12 @@
 // /src/app/api/notifications/route.js
 import { dbConnect } from '@/lib/dbConnect';
-import { verifySessionToken } from '@/lib/auth';
+import {
+  verifySessionToken,
+  encryptPostContent,
+  decryptPostContent,
+  signPayload,
+  verifyPayloadIntegrity,
+} from '@/lib/auth';
 import { Notification } from '@/schema/Notification';
 import { NextResponse } from 'next/server';
 
@@ -26,21 +32,42 @@ export async function GET(req) {
       read: false,
     });
 
-    const formatted = notifications.map((n) => ({
-      id: n._id.toString(),
-      type: n.type,
-      title: n.title,
-      message: n.message,
-      link: n.link,
-      read: n.read,
-      createdAt: n.createdAt,
-      sender: n.sender
-        ? {
-            id: n.sender._id.toString(),
-            role: n.sender.role,
+    const formatted = await Promise.all(
+      notifications.map(async (n) => {
+        let decryptedMessage = n.message;
+        let integrityVerified = false;
+
+        try {
+          // Attempt Scratch ECC decryption (Algorithm 2)
+          decryptedMessage = await decryptPostContent(n.message, n.keyVersion || 'v1');
+          if (n.mac) {
+            const integrityPayload = `${n.message}:${session.id}:${new Date(n.createdAt).toISOString()}`;
+            integrityVerified = verifyPayloadIntegrity(integrityPayload, n.mac);
           }
-        : null,
-    }));
+        } catch (e) {
+          // If stored before encryption was enabled, fallback cleanly
+          decryptedMessage = n.message;
+        }
+
+        return {
+          id: n._id.toString(),
+          type: n.type,
+          title: n.title,
+          message: decryptedMessage,
+          link: n.link,
+          read: n.read,
+          integrityVerified,
+          keyVersion: n.keyVersion || 'v1',
+          createdAt: n.createdAt,
+          sender: n.sender
+            ? {
+                id: n.sender._id.toString(),
+                role: n.sender.role,
+              }
+            : null,
+        };
+      })
+    );
 
     return NextResponse.json({ notifications: formatted, unreadCount });
   } catch (err) {
@@ -68,15 +95,26 @@ export async function POST(req) {
 
     await dbConnect();
 
+    const now = new Date();
+    // Asymmetrically encrypt notification message using Scratch ECC (Algorithm 2)
+    const keyVersion = 'v1';
+    const encryptedMessage = await encryptPostContent(message, keyVersion);
+
+    // Compute Scratch HMAC-SHA256 MAC over ciphertext for data integrity
+    const integrityPayload = `${encryptedMessage}:${recipientId}:${now.toISOString()}`;
+    const mac = signPayload(integrityPayload);
+
     const doc = await Notification.create({
       recipient: recipientId,
       sender: session.id,
       type: type || 'system',
       title,
-      message,
+      message: encryptedMessage,
+      keyVersion,
+      mac,
       link: link || '',
       read: false,
-      createdAt: new Date(),
+      createdAt: now,
     });
 
     return NextResponse.json({
@@ -85,9 +123,10 @@ export async function POST(req) {
         id: doc._id.toString(),
         type: doc.type,
         title: doc.title,
-        message: doc.message,
+        message, // Return plaintext for sender
         link: doc.link,
         read: doc.read,
+        integrityVerified: true,
         createdAt: doc.createdAt,
       },
     });

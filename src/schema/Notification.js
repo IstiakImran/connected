@@ -10,7 +10,11 @@ const NotificationSchema = new Schema({
     required: true,
   },
   title: { type: String, required: true },
+  // Asymmetrically encrypted with Scratch ECC (Algorithm 2)
   message: { type: String, required: true },
+  keyVersion: { type: String, default: 'v1' },
+  // Message Authentication Code (HMAC-SHA256) verifying integrity
+  mac: { type: String, default: '' },
   link: { type: String, default: '' },
   read: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },
