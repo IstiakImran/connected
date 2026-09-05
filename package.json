@@ -1,5 +1,5 @@
 {
-  "name": "orin-apu",
+  "name": "connected",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -15,8 +15,10 @@
     "lucide-react": "^0.469.0",
     "mongoose": "^8.9.3",
     "next": "15.1.3",
+    "nodemailer": "^10.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

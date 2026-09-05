@@ -1,37 +1,50 @@
-// /lib/auth.js
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
-import { encrypt, decrypt } from './encryption';
+// /src/lib/auth.js
+// Authentication & Security facade utilizing from-scratch primitives.
 
-const SALT_ROUNDS = 10;
-const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRES_IN = '1h';
+import { hashPassword as scratchHashPassword, verifyPassword as scratchVerifyPassword } from './crypto/hash.js';
+import { createSecureSession, verifySecureSession } from './crypto/session.js';
+import {
+  encryptUserField,
+  decryptUserField,
+  encryptPostContent,
+  decryptPostContent,
+  signPayload,
+  verifyPayloadIntegrity,
+  hashForBlindIndex,
+} from './encryption.js';
 
-if (!JWT_SECRET) {
-    throw new Error('JWT_SECRET must be set in environment variables.');
-}
-
-export const hashPassword = async (password) => {
-    const salt = await bcrypt.genSalt(SALT_ROUNDS);
-    return bcrypt.hash(password, salt);
+// Scratch Salted Password Hashing
+export const hashPassword = async (password, salt = null) => {
+  return scratchHashPassword(password, salt);
 };
 
-export const comparePassword = async (password, hashedPassword) => {
-    return bcrypt.compare(password, hashedPassword);
+export const comparePassword = async (password, storedHash, salt) => {
+  return scratchVerifyPassword(password, storedHash, salt);
 };
 
-export const generateJWT = (user) => {
-    return jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+// Anti-Hijacking Token / Session Management
+export const generateSessionToken = (user, req) => {
+  return createSecureSession(user, req);
 };
 
-export const verifyJWT = (token) => {
-    return jwt.verify(token, JWT_SECRET);
+export const verifySessionToken = (token, req) => {
+  return verifySecureSession(token, req);
 };
 
-export const encryptData = (data) => {
-    return encrypt(data);
+// Compatibility aliases
+export const generateJWT = generateSessionToken;
+export const verifyJWT = verifySessionToken;
+
+// Re-exports
+export {
+  encryptUserField,
+  decryptUserField,
+  encryptPostContent,
+  decryptPostContent,
+  signPayload,
+  verifyPayloadIntegrity,
+  hashForBlindIndex,
 };
 
-export const decryptData = (data) => {
-    return decrypt(data);
-};
+export const encryptData = encryptUserField;
+export const decryptData = decryptUserField;

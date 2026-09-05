@@ -1,64 +1,95 @@
-// /app/api/auth/register/route.js
+// /app/api/auth/signup/route.js
 
 import { dbConnect } from '@/lib/dbConnect';
-
-import { hashPassword, encryptData } from '@/lib/auth';
+import { hashPassword, encryptUserField, hashForBlindIndex } from '@/lib/auth';
+import { sendVerificationEmail } from '@/lib/mailer';
 import { NextResponse } from 'next/server';
 import { User } from '@/schema/User';
 
 export async function POST(request) {
-    try {
-        const { username, email, password, fullName, address } = await request.json();
+  try {
+    const { username, email, password, fullName, address, role } = await request.json();
 
-        // Validate input
-        if (!username || !email || !password || !fullName || !address) {
-            return NextResponse.json(
-                { message: 'All fields are required.' },
-                { status: 400 }
-            );
-        }
-
-        await dbConnect();
-
-        // Check if user exists
-        const existingUser = await User.findOne({
-            $or: [{ email: encryptData(email) }, { username: encryptData(username) }],
-        });
-
-        if (existingUser) {
-            return NextResponse.json(
-                { message: 'User already exists.' },
-                { status: 400 }
-            );
-        }
-
-        // Hash password
-        const hashedPassword = await hashPassword(password);
-
-        // Encrypt user data
-        const encryptedUsername = encryptData(username);
-        const encryptedEmail = encryptData(email);
-        const encryptedfullName = encryptData(fullName);
-        const encryptedaddress = encryptData(address);
-
-        // Create user
-        await User.create({
-            username: encryptedUsername,
-            email: encryptedEmail,
-            password: hashedPassword,
-            fullName: encryptedfullName,
-            address: encryptedaddress,
-        });
-
-        return NextResponse.json(
-            { message: 'User registered successfully.' },
-            { status: 201 }
-        );
-    } catch (error) {
-        console.error('Registration Error:', error);
-        return NextResponse.json(
-            { message: 'Internal Server Error.' },
-            { status: 500 }
-        );
+    if (!username || !email || !password || !fullName || !address) {
+      return NextResponse.json(
+        { message: 'All fields (username, email, password, fullName, address) are required.' },
+        { status: 400 }
+      );
     }
+
+    await dbConnect();
+
+    // Compute search hashes for unique check without storing plaintext
+    const emailHash = hashForBlindIndex(email);
+    const usernameHash = hashForBlindIndex(username);
+
+    const existingUser = await User.findOne({
+      $or: [{ emailHash }, { usernameHash }],
+    });
+
+    if (existingUser) {
+      return NextResponse.json(
+        { message: 'A user with this email or username already exists.' },
+        { status: 400 }
+      );
+    }
+
+    // From-scratch salted password hashing
+    const { hash: hashedPassword, salt } = await hashPassword(password);
+
+    // Asymmetric encryption of user identity fields using Scratch RSA
+    const encryptedUsername = await encryptUserField(username);
+    const encryptedEmail = await encryptUserField(email);
+    const encryptedFullName = await encryptUserField(fullName);
+    const encryptedAddress = await encryptUserField(address);
+
+    const assignedRole = role === 'admin' ? 'admin' : 'user';
+
+    // Generate 6-digit email verification code for Nodemailer
+    const emailVerificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const emailVerificationExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    const user = await User.create({
+      username: encryptedUsername,
+      usernameHash,
+      email: encryptedEmail,
+      emailHash,
+      password: hashedPassword,
+      salt,
+      fullName: encryptedFullName,
+      address: encryptedAddress,
+      role: assignedRole,
+      twoFactorEnabled: true,
+      emailVerified: false,
+      emailVerificationCode,
+      emailVerificationExpires,
+    });
+
+    // Send verification email via Nodemailer
+    const mailResult = await sendVerificationEmail(email, username, emailVerificationCode);
+
+    if (!mailResult.success) {
+      console.error('Email dispatch failed during signup:', mailResult.error);
+      return NextResponse.json(
+        { message: 'Failed to send verification email: ' + mailResult.error },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        message: 'User registered successfully. A 6-digit verification code has been sent to your email address.',
+        userId: user._id,
+        requireEmailVerification: true,
+        role: user.role,
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    console.error('Registration Error:', error);
+    return NextResponse.json(
+      { message: 'Internal Server Error during registration: ' + error.message },
+      { status: 500 }
+    );
+  }
 }

@@ -2,6 +2,7 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Navbar from "./components/Navbar";
+import Providers from "@/components/Providers";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,18 +15,20 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "Social Platform",
-  description: "A modern social platform built with Next.js",
+  title: "Connected – Secure Asymmetric Social Platform (CSE447)",
+  description: "End-to-End Dual Asymmetric Encryption (RSA & ECC), Key Management Module, 2FA, RBAC, HMAC Data Integrity, and Real-Time Messaging.",
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased min-h-screen bg-gray-50`}>
-        <Navbar />
-        <main className="pt-4">
-          {children}
-        </main>
+      <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased min-h-screen bg-slate-950 text-slate-100`}>
+        <Providers>
+          <Navbar />
+          <main>
+            {children}
+          </main>
+        </Providers>
       </body>
     </html>
   );
