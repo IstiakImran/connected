@@ -64,7 +64,8 @@ export function SocketProvider({ children }) {
   const dismissNotification = useCallback((id) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-    if (token && id && !id.startsWith('temp_') && !id.startsWith('notif_')) {
+    const isPersistentId = typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+    if (token && isPersistentId) {
       fetch('/api/notifications', {
         method: 'DELETE',
         headers: {

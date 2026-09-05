@@ -8,6 +8,7 @@ import {
   verifyPayloadIntegrity,
 } from '@/lib/auth';
 import { Notification } from '@/schema/Notification';
+import mongoose from 'mongoose';
 import { NextResponse } from 'next/server';
 
 export async function GET(req) {
@@ -155,6 +156,9 @@ export async function PUT(req) {
         { $set: { read: true } }
       );
     } else if (id) {
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return NextResponse.json({ success: true, message: 'Ignored non-persistent notification ID' });
+      }
       await Notification.updateOne(
         { _id: id, recipient: session.id },
         { $set: { read: true } }
@@ -185,6 +189,9 @@ export async function DELETE(req) {
     if (all) {
       await Notification.deleteMany({ recipient: session.id });
     } else if (id) {
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return NextResponse.json({ success: true, message: 'Ignored non-persistent notification ID' });
+      }
       await Notification.deleteOne({ _id: id, recipient: session.id });
     }
 
