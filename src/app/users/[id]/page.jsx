@@ -21,8 +21,10 @@ import {
   Calendar,
   Layers,
 } from 'lucide-react';
+import { useSocket } from '@/context/SocketContext';
 
 export default function UserProfilePage() {
+  const { sendLiveNotification } = useSocket();
   const router = useRouter();
   const params = useParams();
   const userId = params?.id;
@@ -94,6 +96,21 @@ export default function UserProfilePage() {
 
       if (res.ok) {
         setSuccess(data.message);
+        if (action === 'request') {
+          sendLiveNotification(userId, {
+            type: 'connection',
+            title: 'New Connection Request',
+            message: 'You have received a new connection request!',
+            link: '/users',
+          });
+        } else if (action === 'accept') {
+          sendLiveNotification(userId, {
+            type: 'connection',
+            title: 'Connection Accepted',
+            message: 'Your connection request was accepted!',
+            link: '/users',
+          });
+        }
         await fetchUserProfile();
       } else {
         setError(data.message || 'Action failed');

@@ -38,6 +38,7 @@ export async function GET(req, { params }) {
 
         const integrityPayload = `${msg.content}:${msg.sender.toString()}:${new Date(msg.createdAt).toISOString()}`;
         const isIntegrityValid = verifyPayloadIntegrity(integrityPayload, msg.mac);
+        const status = msg.read ? 'read' : msg.delivered ? 'delivered' : msg.status || 'sent';
 
         return {
           id: msg._id.toString(),
@@ -48,6 +49,11 @@ export async function GET(req, { params }) {
           mac: msg.mac,
           keyVersion: msg.keyVersion || 'v1',
           integrityVerified: isIntegrityValid,
+          status,
+          read: !!msg.read,
+          delivered: !!msg.delivered,
+          deliveredAt: msg.deliveredAt || null,
+          readAt: msg.readAt || null,
           createdAt: msg.createdAt,
         };
       })

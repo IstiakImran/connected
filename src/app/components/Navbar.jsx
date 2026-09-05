@@ -5,10 +5,12 @@ import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { Shield, User, MessageSquare, LogOut, Lock, Key, ShieldAlert, Users } from 'lucide-react';
+import { useSocket } from '@/context/SocketContext';
 
 export default function Navbar() {
   const router = useRouter();
   const pathname = usePathname();
+  const { unreadMessageCount, notifications } = useSocket();
   const [currentUser, setCurrentUser] = useState(null);
   const [pendingCount, setPendingCount] = useState(0);
   const [isMounted, setIsMounted] = useState(false);
@@ -60,6 +62,22 @@ export default function Navbar() {
     fetchMe();
     fetchPendingConnections();
   }, [pathname]);
+
+  // Sync connection count when connection notification arrives
+  useEffect(() => {
+    if (!token || !notifications || notifications.length === 0) return;
+    const hasConnectionNotif = notifications.some((n) => n.type === 'connection');
+    if (hasConnectionNotif) {
+      fetch('/api/connections', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.pendingCount !== undefined) setPendingCount(data.pendingCount);
+        })
+        .catch(() => {});
+    }
+  }, [notifications, token]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -130,7 +148,12 @@ export default function Navbar() {
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                     </span>
-                    Live Chat (P2P)
+                    <span>Live Chat (P2P)</span>
+                    {isMounted && unreadMessageCount > 0 && (
+                      <span className="ml-1.5 bg-emerald-500 text-slate-950 text-[10px] font-bold px-1.5 py-0.2 rounded-full animate-pulse">
+                        {unreadMessageCount}
+                      </span>
+                    )}
                   </Link>
 
                   <Link

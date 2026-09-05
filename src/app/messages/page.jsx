@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useSocket } from '@/context/SocketContext';
 import {
   MessageSquare,
@@ -15,11 +15,28 @@ import {
   Search,
   Wifi,
   WifiOff,
+  Check,
+  CheckCheck,
 } from 'lucide-react';
 
-export default function MessagesPage() {
+function MessagesContent() {
   const router = useRouter();
-  const { isConnected, isUserOnline, latestMessage, sendMessage, startTyping, stopTyping, typingMap } = useSocket();
+  const searchParams = useSearchParams();
+  const queryUserId = searchParams.get('user');
+
+  const {
+    isConnected,
+    isUserOnline,
+    latestMessage,
+    sendMessage,
+    startTyping,
+    stopTyping,
+    typingMap,
+    messageStatusMap,
+    readReceiptMap,
+    setActiveConversationUserId,
+    markConversationAsRead,
+  } = useSocket();
 
   const [users, setUsers] = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
@@ -63,8 +80,17 @@ export default function MessagesPage() {
         });
         if (usersRes.ok) {
           const uData = await usersRes.json();
-          setUsers(uData.users || []);
-          setFilteredUsers(uData.users || []);
+          const list = uData.users || [];
+          setUsers(list);
+          setFilteredUsers(list);
+
+          // Auto-select user if query param provided
+          if (queryUserId) {
+            const found = list.find((u) => u.id === queryUserId);
+            if (found) {
+              setSelectedUser(found);
+            }
+          }
         }
       } catch (err) {
         setError('Failed to load users: ' + err.message);
@@ -74,7 +100,20 @@ export default function MessagesPage() {
     };
 
     init();
-  }, [router]);
+  }, [router, queryUserId]);
+
+  // Track active conversation user for SocketContext
+  useEffect(() => {
+    if (selectedUser?.id) {
+      setActiveConversationUserId(selectedUser.id);
+      markConversationAsRead(selectedUser.id);
+    } else {
+      setActiveConversationUserId(null);
+    }
+    return () => {
+      setActiveConversationUserId(null);
+    };
+  }, [selectedUser, setActiveConversationUserId, markConversationAsRead]);
 
   // Filter users by search query
   useEffect(() => {
@@ -105,6 +144,7 @@ export default function MessagesPage() {
         if (res.ok) {
           const data = await res.json();
           setMessages(data.messages || []);
+          markConversationAsRead(selectedUser.id);
         } else {
           setError('Failed to load conversation history');
         }
@@ -116,7 +156,7 @@ export default function MessagesPage() {
     };
 
     fetchHistory();
-  }, [selectedUser]);
+  }, [selectedUser, markConversationAsRead]);
 
   // 3. Listen for live incoming messages from SocketProvider
   useEffect(() => {
@@ -128,12 +168,57 @@ export default function MessagesPage() {
 
     if (isFromSelectedUser || isToSelectedUser) {
       setMessages((prev) => {
+        // Replace temporary optimistic message if ACK arrives with tempId
+        if (latestMessage.tempId) {
+          const idx = prev.findIndex((m) => m.id === latestMessage.tempId);
+          if (idx !== -1) {
+            const copy = [...prev];
+            copy[idx] = { ...copy[idx], id: latestMessage.id, status: latestMessage.status || 'sent' };
+            return copy;
+          }
+        }
+
         // Prevent duplicates
         if (prev.some((m) => m.id === latestMessage.id)) return prev;
         return [...prev, latestMessage];
       });
+
+      if (isFromSelectedUser && selectedUser) {
+        markConversationAsRead(selectedUser.id);
+      }
     }
-  }, [latestMessage, selectedUser]);
+  }, [latestMessage, selectedUser, markConversationAsRead]);
+
+  // 4. Update message statuses live when delivery receipts arrive
+  useEffect(() => {
+    if (!messageStatusMap || Object.keys(messageStatusMap).length === 0) return;
+    setMessages((prev) =>
+      prev.map((msg) => {
+        const update = messageStatusMap[msg.id];
+        if (update) {
+          return {
+            ...msg,
+            status: update.status || msg.status,
+            deliveredAt: update.deliveredAt || msg.deliveredAt,
+          };
+        }
+        return msg;
+      })
+    );
+  }, [messageStatusMap]);
+
+  // 5. Update message statuses live when recipient reads messages
+  useEffect(() => {
+    if (!selectedUser || !readReceiptMap[selectedUser.id]) return;
+    setMessages((prev) =>
+      prev.map((msg) => {
+        if (msg.senderId === currentUserId) {
+          return { ...msg, status: 'read', read: true };
+        }
+        return msg;
+      })
+    );
+  }, [readReceiptMap, selectedUser, currentUserId]);
 
   // Auto scroll to bottom of chat
   useEffect(() => {
@@ -364,7 +449,7 @@ export default function MessagesPage() {
                         >
                           <p className="whitespace-pre-wrap">{msg.content}</p>
 
-                          {/* Cryptographic Badges */}
+                          {/* Cryptographic Badges & Status Ticks */}
                           <div
                             className={`pt-1 text-[10px] flex items-center justify-between space-x-2 border-t ${
                               isMe ? 'border-indigo-500/50 text-indigo-200' : 'border-slate-700 text-slate-400'
@@ -374,10 +459,33 @@ export default function MessagesPage() {
                               {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </span>
 
-                            <span className="inline-flex items-center space-x-1">
-                              <ShieldCheck className="w-3 h-3 text-emerald-300" />
-                              <span>MAC Verified</span>
-                            </span>
+                            <div className="flex items-center space-x-2">
+                              <span className="inline-flex items-center space-x-1">
+                                <ShieldCheck className="w-3 h-3 text-emerald-300" />
+                                <span>MAC Verified</span>
+                              </span>
+
+                              {isMe && (
+                                <span className="inline-flex items-center space-x-0.5 ml-1 font-mono text-[10px]">
+                                  {msg.status === 'read' ? (
+                                    <span className="inline-flex items-center text-sky-300 font-semibold space-x-0.5" title="Read by recipient">
+                                      <CheckCheck className="w-3.5 h-3.5" />
+                                      <span>Read</span>
+                                    </span>
+                                  ) : msg.status === 'delivered' ? (
+                                    <span className="inline-flex items-center text-indigo-200 space-x-0.5" title="Delivered to recipient">
+                                      <CheckCheck className="w-3.5 h-3.5" />
+                                      <span>Delivered</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center text-indigo-300/80 space-x-0.5" title="Sent to server">
+                                      <Check className="w-3.5 h-3.5" />
+                                      <span>Sent</span>
+                                    </span>
+                                  )}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
 
@@ -442,5 +550,20 @@ export default function MessagesPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function MessagesPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="text-center text-slate-400 text-xs flex items-center space-x-2">
+          <Loader className="w-4 h-4 animate-spin text-indigo-500" />
+          <span>Loading secure chat...</span>
+        </div>
+      </div>
+    }>
+      <MessagesContent />
+    </Suspense>
   );
 }

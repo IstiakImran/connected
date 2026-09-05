@@ -13,6 +13,10 @@ const DirectMessageSchema = new Schema({
   mac: { type: String, required: true },
 
   read: { type: Boolean, default: false },
+  delivered: { type: Boolean, default: false },
+  status: { type: String, enum: ['sent', 'delivered', 'read'], default: 'sent' },
+  deliveredAt: { type: Date },
+  readAt: { type: Date },
   createdAt: { type: Date, default: Date.now },
 });
 

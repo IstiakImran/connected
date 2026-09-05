@@ -18,9 +18,11 @@ import {
   RefreshCw,
   ExternalLink,
 } from 'lucide-react';
+import { useSocket } from '@/context/SocketContext';
 
 export default function UsersDirectory() {
   const router = useRouter();
+  const { sendLiveNotification } = useSocket();
   const [activeTab, setActiveTab] = useState('discover'); // 'discover' | 'pending' | 'friends'
   const [users, setUsers] = useState([]);
   const [friends, setFriends] = useState([]);
@@ -98,6 +100,21 @@ export default function UsersDirectory() {
 
       if (res.ok) {
         setSuccess(data.message);
+        if (action === 'request') {
+          sendLiveNotification(targetUserId, {
+            type: 'connection',
+            title: 'New Connection Request',
+            message: 'You have received a new connection request!',
+            link: '/users',
+          });
+        } else if (action === 'accept') {
+          sendLiveNotification(targetUserId, {
+            type: 'connection',
+            title: 'Connection Accepted',
+            message: 'Your connection request was accepted!',
+            link: '/users',
+          });
+        }
         await loadData();
       } else {
         setError(data.message || 'Action failed');

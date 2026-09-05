@@ -16,13 +16,68 @@ export function SocketProvider({ children }) {
   const [typingMap, setTypingMap] = useState({}); // userId -> boolean
   const [latestMessage, setLatestMessage] = useState(null);
   const [authToken, setAuthToken] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const [messageStatusMap, setMessageStatusMap] = useState({}); // messageId -> { status, deliveredAt, readAt }
+  const [readReceiptMap, setReadReceiptMap] = useState({}); // recipientId -> readAt
+  const [activeConversationUserId, setActiveConversationUserId] = useState(null);
+
   const socketRef = useRef(null);
+  const activeConversationUserIdRef = useRef(null);
+
+  // Keep ref in sync for event callbacks
+  useEffect(() => {
+    activeConversationUserIdRef.current = activeConversationUserId;
+  }, [activeConversationUserId]);
 
   // Sync token whenever route changes or on mount
   useEffect(() => {
     const t = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
     setAuthToken(t);
   }, [pathname]);
+
+  const addNotification = useCallback((notif) => {
+    const id = notif.id || 'notif_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    const newNotif = { ...notif, id, createdAt: notif.createdAt || new Date().toISOString() };
+    setNotifications((prev) => [newNotif, ...prev.slice(0, 4)]); // Keep max 5 recent notifications
+  }, []);
+
+  const dismissNotification = useCallback((id) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  }, []);
+
+  const clearAllNotifications = useCallback(() => {
+    setNotifications([]);
+  }, []);
+
+  const markConversationAsRead = useCallback(async (senderId) => {
+    if (!senderId) return;
+
+    // 1. Emit via socket
+    if (socketRef.current && socketRef.current.connected) {
+      socketRef.current.emit('mark_messages_read', { senderId });
+    }
+
+    // 2. REST fallback to ensure persistence
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      if (token) {
+        await fetch('/api/messages/read', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ senderId }),
+        });
+      }
+    } catch (e) {
+      console.warn('REST mark as read error:', e);
+    }
+
+    // Decrement unread count
+    setUnreadMessageCount((prev) => Math.max(0, prev - 1));
+  }, []);
 
   useEffect(() => {
     if (!authToken) {
@@ -62,9 +117,32 @@ export function SocketProvider({ children }) {
       setOnlineUserIds(userIds || []);
     });
 
+    // 1. Delivery & Read Receipts from Server
+    s.on('message_status_update', ({ messageId, status, deliveredAt }) => {
+      setMessageStatusMap((prev) => ({
+        ...prev,
+        [messageId]: { status, deliveredAt },
+      }));
+    });
+
+    s.on('messages_read_by_recipient', ({ recipientId, readAt }) => {
+      setReadReceiptMap((prev) => ({
+        ...prev,
+        [recipientId]: readAt,
+      }));
+    });
+
+    // 2. Incoming Direct Messages
     s.on('receive_direct_message', async (data) => {
       console.log('[SocketProvider] New direct message received live:', data);
+
+      // Acknowledge delivery immediately to sender
+      s.emit('message_delivered', { messageId: data.id, senderId: data.senderId });
+
       // Decrypt incoming message
+      let decryptedText = '[Encrypted Message]';
+      let integrityVerified = false;
+
       try {
         const token = localStorage.getItem('token');
         const decRes = await fetch('/api/messages/decrypt', {
@@ -77,18 +155,46 @@ export function SocketProvider({ children }) {
         });
         if (decRes.ok) {
           const decData = await decRes.json();
-          setLatestMessage({
-            ...data,
-            content: decData.decryptedContent,
-            integrityVerified: decData.integrityVerified,
-          });
-        } else {
-          setLatestMessage(data);
+          decryptedText = decData.decryptedContent;
+          integrityVerified = decData.integrityVerified;
         }
       } catch (e) {
         console.error('Decryption error on incoming message:', e);
-        setLatestMessage(data);
       }
+
+      const hydratedMessage = {
+        ...data,
+        content: decryptedText,
+        integrityVerified,
+        status: 'delivered',
+      };
+
+      setLatestMessage(hydratedMessage);
+
+      // Check if recipient is actively chatting with sender
+      const isViewingChat = activeConversationUserIdRef.current === data.senderId;
+
+      if (isViewingChat) {
+        // Automatically mark as read
+        s.emit('mark_messages_read', { senderId: data.senderId });
+      } else {
+        // Increment unread count & show toast notification
+        setUnreadMessageCount((prev) => prev + 1);
+        addNotification({
+          id: 'msg_' + data.id,
+          type: 'message',
+          title: 'Encrypted Message Received',
+          message: decryptedText.length > 50 ? decryptedText.slice(0, 50) + '...' : decryptedText,
+          senderId: data.senderId,
+          link: `/messages?user=${data.senderId}`,
+        });
+      }
+    });
+
+    // 3. Generic Live Notifications (Friend Requests, Comments, Votes)
+    s.on('receive_notification', (notif) => {
+      console.log('[SocketProvider] Live notification received:', notif);
+      addNotification(notif);
     });
 
     s.on('user_typing', ({ senderId }) => {
@@ -105,7 +211,7 @@ export function SocketProvider({ children }) {
     return () => {
       s.disconnect();
     };
-  }, [authToken]);
+  }, [authToken, addNotification]);
 
   const isUserOnline = useCallback(
     (userId) => {
@@ -161,11 +267,23 @@ export function SocketProvider({ children }) {
         mac: prepared.mac,
         keyVersion: prepared.keyVersion,
         integrityVerified: true,
+        status: 'sent',
+        read: false,
+        delivered: false,
         createdAt: prepared.createdAt,
       };
     },
     []
   );
+
+  const sendLiveNotification = useCallback((recipientId, notifData) => {
+    if (socketRef.current && socketRef.current.connected && recipientId) {
+      socketRef.current.emit('send_notification', {
+        recipientId,
+        ...notifData,
+      });
+    }
+  }, []);
 
   const startTyping = useCallback((recipientId) => {
     if (socketRef.current && socketRef.current.connected && recipientId) {
@@ -191,6 +309,17 @@ export function SocketProvider({ children }) {
         startTyping,
         stopTyping,
         typingMap,
+        notifications,
+        unreadMessageCount,
+        messageStatusMap,
+        readReceiptMap,
+        activeConversationUserId,
+        setActiveConversationUserId,
+        markConversationAsRead,
+        sendLiveNotification,
+        addNotification,
+        dismissNotification,
+        clearAllNotifications,
       }}
     >
       {children}
@@ -205,3 +334,4 @@ export function useSocket() {
   }
   return context;
 }
+
