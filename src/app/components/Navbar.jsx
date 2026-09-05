@@ -11,11 +11,15 @@ export default function Navbar() {
   const pathname = usePathname();
   const [currentUser, setCurrentUser] = useState(null);
   const [pendingCount, setPendingCount] = useState(0);
-
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const [isMounted, setIsMounted] = useState(false);
+  const [token, setToken] = useState(null);
 
   useEffect(() => {
-    if (!token) {
+    setIsMounted(true);
+    const storedToken = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    setToken(storedToken);
+
+    if (!storedToken) {
       setCurrentUser(null);
       setPendingCount(0);
       return;
@@ -24,13 +28,14 @@ export default function Navbar() {
     const fetchMe = async () => {
       try {
         const res = await fetch('/api/auth/me', {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${storedToken}` },
         });
         if (res.ok) {
           const data = await res.json();
           setCurrentUser(data);
         } else {
           localStorage.removeItem('token');
+          setToken(null);
           setCurrentUser(null);
         }
       } catch (e) {
@@ -41,7 +46,7 @@ export default function Navbar() {
     const fetchPendingConnections = async () => {
       try {
         const res = await fetch('/api/connections', {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${storedToken}` },
         });
         if (res.ok) {
           const data = await res.json();
@@ -54,10 +59,11 @@ export default function Navbar() {
 
     fetchMe();
     fetchPendingConnections();
-  }, [token, pathname]);
+  }, [pathname]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
+    setToken(null);
     setCurrentUser(null);
     router.push('/signin');
   };
@@ -87,7 +93,7 @@ export default function Navbar() {
                 Home
               </Link>
 
-              {token && (
+              {isMounted && token && (
                 <>
                   <Link
                     href="/posts"
@@ -154,46 +160,50 @@ export default function Navbar() {
           </div>
 
           <div className="flex items-center space-x-3">
-            {token ? (
-              <div className="flex items-center space-x-3">
-                {currentUser && (
-                  <span className="hidden md:inline-flex items-center space-x-1.5 text-xs bg-slate-800 px-2.5 py-1 rounded-full border border-slate-700 text-slate-300">
-                    <span className="font-semibold text-white">{currentUser.username}</span>
-                    <span
-                      className={`px-1.5 py-0.2 rounded text-[10px] uppercase font-bold ${
-                        currentUser.role === 'admin'
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                          : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                      }`}
-                    >
-                      {currentUser.role}
+            {isMounted ? (
+              token ? (
+                <div className="flex items-center space-x-3">
+                  {currentUser && (
+                    <span className="hidden md:inline-flex items-center space-x-1.5 text-xs bg-slate-800 px-2.5 py-1 rounded-full border border-slate-700 text-slate-300">
+                      <span className="font-semibold text-white">{currentUser.username}</span>
+                      <span
+                        className={`px-1.5 py-0.2 rounded text-[10px] uppercase font-bold ${
+                          currentUser.role === 'admin'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                        }`}
+                      >
+                        {currentUser.role}
+                      </span>
                     </span>
-                  </span>
-                )}
+                  )}
 
-                <button
-                  onClick={handleLogout}
-                  className="inline-flex items-center px-3 py-1.5 border border-slate-700 text-sm font-medium rounded-md text-slate-200 bg-slate-800 hover:bg-slate-700 hover:text-white focus:outline-none transition"
-                >
-                  <LogOut className="h-4 w-4 mr-1.5 text-rose-400" />
-                  Logout
-                </button>
-              </div>
+                  <button
+                    onClick={handleLogout}
+                    className="inline-flex items-center px-3 py-1.5 border border-slate-700 text-sm font-medium rounded-md text-slate-200 bg-slate-800 hover:bg-slate-700 hover:text-white focus:outline-none transition"
+                  >
+                    <LogOut className="h-4 w-4 mr-1.5 text-rose-400" />
+                    Logout
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-2">
+                  <Link
+                    href="/signin"
+                    className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md text-slate-200 hover:text-white hover:bg-slate-800 transition"
+                  >
+                    Sign in
+                  </Link>
+                  <Link
+                    href="/signup"
+                    className="inline-flex items-center px-3.5 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-500 transition shadow"
+                  >
+                    Register
+                  </Link>
+                </div>
+              )
             ) : (
-              <div className="flex items-center space-x-2">
-                <Link
-                  href="/signin"
-                  className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md text-slate-200 hover:text-white hover:bg-slate-800 transition"
-                >
-                  Sign in
-                </Link>
-                <Link
-                  href="/signup"
-                  className="inline-flex items-center px-3.5 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-500 transition shadow"
-                >
-                  Register
-                </Link>
-              </div>
+              <div className="h-8 w-24" />
             )}
           </div>
         </div>
