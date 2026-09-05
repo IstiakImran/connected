@@ -344,16 +344,17 @@ export default function Posts() {
     }
   };
 
-  // Post direct reply to a comment
-  const handleAddReply = async (e, postId, parentCommentId) => {
+  // Post direct reply to a comment or sub-reply
+  const handleAddReply = async (e, postId, parentCommentId, replyToUserId = null, replyInputKey = null) => {
     e.preventDefault();
-    const replyBody = (replyText[parentCommentId] || '').trim();
+    const inputKey = replyInputKey || parentCommentId;
+    const replyBody = (replyText[inputKey] || '').trim();
     if (!replyBody) return;
 
     const token = localStorage.getItem('token');
     if (!token) return;
 
-    setSubmittingComment((prev) => ({ ...prev, [parentCommentId]: true }));
+    setSubmittingComment((prev) => ({ ...prev, [inputKey]: true }));
 
     try {
       const res = await fetch(`/api/posts/${postId}/comments`, {
@@ -370,11 +371,14 @@ export default function Posts() {
         const commentsList = postComments[postId] || [];
         const parentComment = commentsList.find((c) => c.id === parentCommentId);
 
-        // Dispatch live notification to parent comment author
-        if (parentComment && parentComment.author?.id && parentComment.author.id !== currentUser?.userId) {
-          sendLiveNotification(parentComment.author.id, {
+        // Target user to notify: specific reply author if provided, else parentComment author
+        const notifyTarget = replyToUserId || parentComment?.author?.id;
+
+        // Dispatch live notification
+        if (notifyTarget && notifyTarget !== currentUser?.userId) {
+          sendLiveNotification(notifyTarget, {
             type: 'comment',
-            title: 'Reply to Your Comment 💬',
+            title: 'New Reply 💬',
             message: `${currentUser?.username || 'A user'} replied: "${replyBody.length > 40 ? replyBody.slice(0, 40) + '...' : replyBody}"`,
             link: '/posts',
           });
@@ -384,8 +388,8 @@ export default function Posts() {
           ...prev,
           [postId]: [...(prev[postId] || []), data.comment],
         }));
-        setReplyText((prev) => ({ ...prev, [parentCommentId]: '' }));
-        setReplyingTo((prev) => ({ ...prev, [parentCommentId]: false }));
+        setReplyText((prev) => ({ ...prev, [inputKey]: '' }));
+        setReplyingTo((prev) => ({ ...prev, [inputKey]: false }));
         setPosts((prevPosts) =>
           prevPosts.map((p) =>
             p.id === postId ? { ...p, commentsCount: (p.commentsCount || 0) + 1 } : p
@@ -398,7 +402,7 @@ export default function Posts() {
     } catch (err) {
       setError('Error posting reply: ' + err.message);
     } finally {
-      setSubmittingComment((prev) => ({ ...prev, [parentCommentId]: false }));
+      setSubmittingComment((prev) => ({ ...prev, [inputKey]: false }));
     }
   };
 
@@ -883,46 +887,118 @@ export default function Posts() {
                                 {/* Threaded / Indented Replies */}
                                 {replies.length > 0 && (
                                   <div className="ml-6 sm:ml-8 pl-3 border-l-2 border-slate-700/60 space-y-2">
-                                    {replies.map((reply) => (
-                                      <div
-                                        key={reply.id}
-                                        className="bg-slate-800/40 border border-slate-750/70 rounded-lg p-2.5 space-y-1"
-                                      >
-                                        <div className="flex items-center justify-between text-xs">
-                                          <div className="flex items-center space-x-1.5">
-                                            <CornerDownRight className="w-3 h-3 text-indigo-400" />
-                                            <Link
-                                              href={`/users/${reply.author.id}`}
-                                              className="font-bold text-slate-200 hover:text-indigo-400"
+                                    {replies.map((reply) => {
+                                      const isReplyingToReply = !!replyingTo[reply.id];
+
+                                      return (
+                                        <div
+                                          key={reply.id}
+                                          className="bg-slate-800/40 border border-slate-750/70 rounded-lg p-2.5 space-y-1.5"
+                                        >
+                                          <div className="flex items-center justify-between text-xs">
+                                            <div className="flex items-center space-x-1.5">
+                                              <CornerDownRight className="w-3 h-3 text-indigo-400" />
+                                              <Link
+                                                href={`/users/${reply.author.id}`}
+                                                className="font-bold text-slate-200 hover:text-indigo-400"
+                                              >
+                                                @{reply.author.username}
+                                              </Link>
+                                              <span className="text-[10px] text-slate-500">
+                                                {new Date(reply.createdAt).toLocaleTimeString([], {
+                                                  hour: '2-digit',
+                                                  minute: '2-digit',
+                                                })}
+                                              </span>
+                                            </div>
+
+                                            {reply.integrityVerified ? (
+                                              <span className="text-[10px] text-emerald-400 flex items-center space-x-1 font-mono">
+                                                <ShieldCheck className="w-3 h-3" />
+                                                <span>MAC Verified</span>
+                                              </span>
+                                            ) : (
+                                              <span className="text-[10px] text-rose-400 flex items-center space-x-1 font-mono">
+                                                <ShieldAlert className="w-3 h-3" />
+                                                <span>MAC Failed</span>
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          <p className="text-xs text-slate-200 whitespace-pre-wrap pl-4 leading-relaxed">
+                                            {reply.content}
+                                          </p>
+
+                                          <div className="pt-1 flex items-center justify-between text-[11px] pl-4">
+                                            <button
+                                              onClick={() => {
+                                                setReplyingTo((prev) => ({
+                                                  ...prev,
+                                                  [reply.id]: !prev[reply.id],
+                                                }));
+                                                if (!replyText[reply.id]) {
+                                                  setReplyText((prev) => ({
+                                                    ...prev,
+                                                    [reply.id]: `@${reply.author.username} `,
+                                                  }));
+                                                }
+                                              }}
+                                              className="text-indigo-400 hover:text-indigo-300 font-medium flex items-center space-x-1"
                                             >
-                                              @{reply.author.username}
-                                            </Link>
-                                            <span className="text-[10px] text-slate-500">
-                                              {new Date(reply.createdAt).toLocaleTimeString([], {
-                                                hour: '2-digit',
-                                                minute: '2-digit',
-                                              })}
+                                              <Reply className="w-3 h-3" />
+                                              <span>Reply</span>
+                                            </button>
+
+                                            <span className="text-[10px] font-mono text-slate-500">
+                                              ECC {reply.keyVersion || 'v1'}
                                             </span>
                                           </div>
 
-                                          {reply.integrityVerified ? (
-                                            <span className="text-[10px] text-emerald-400 flex items-center space-x-1 font-mono">
-                                              <ShieldCheck className="w-3 h-3" />
-                                              <span>MAC Verified</span>
-                                            </span>
-                                          ) : (
-                                            <span className="text-[10px] text-rose-400 flex items-center space-x-1 font-mono">
-                                              <ShieldAlert className="w-3 h-3" />
-                                              <span>MAC Failed</span>
-                                            </span>
+                                          {/* Inline Reply Form for this sub-reply */}
+                                          {isReplyingToReply && (
+                                            <form
+                                              onSubmit={(e) =>
+                                                handleAddReply(
+                                                  e,
+                                                  post.id,
+                                                  comment.id,
+                                                  reply.author.id,
+                                                  reply.id
+                                                )
+                                              }
+                                              className="pt-2 pl-4 flex items-start space-x-2"
+                                            >
+                                              <textarea
+                                                rows="2"
+                                                placeholder={`Reply to @${reply.author.username}...`}
+                                                value={replyText[reply.id] || ''}
+                                                onChange={(e) =>
+                                                  setReplyText((prev) => ({
+                                                    ...prev,
+                                                    [reply.id]: e.target.value,
+                                                  }))
+                                                }
+                                                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                              />
+                                              <button
+                                                type="submit"
+                                                disabled={
+                                                  submittingComment[reply.id] ||
+                                                  !(replyText[reply.id] || '').trim()
+                                                }
+                                                className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold disabled:opacity-50 transition"
+                                              >
+                                                {submittingComment[reply.id] ? (
+                                                  <Loader className="w-3 h-3 animate-spin" />
+                                                ) : (
+                                                  'Reply'
+                                                )}
+                                              </button>
+                                            </form>
                                           )}
                                         </div>
-
-                                        <p className="text-xs text-slate-200 whitespace-pre-wrap pl-4">
-                                          {reply.content}
-                                        </p>
-                                      </div>
-                                    ))}
+                                      );
+                                    })}
                                   </div>
                                 )}
                               </div>
