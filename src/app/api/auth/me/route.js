@@ -26,7 +26,7 @@ export async function GET(req) {
 
     return NextResponse.json({
       authenticated: true,
-      userId: user._id,
+      userId: user._id.toString(),
       role: user.role || 'user',
       username,
     });

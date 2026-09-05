@@ -64,6 +64,7 @@ export default function NotificationToast() {
             case 'connection':
               return <UserPlus className="w-5 h-5 text-indigo-400 flex-shrink-0" />;
             case 'comment':
+            case 'reply':
               return <MessageCircle className="w-5 h-5 text-emerald-400 flex-shrink-0" />;
             case 'post':
             case 'vote':

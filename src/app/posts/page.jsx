@@ -223,7 +223,7 @@ export default function Posts() {
         const targetPost = posts.find((p) => p.id === postId);
 
         // Dispatch live notification if upvoted
-        if (targetPost && targetPost.author?.id && targetPost.author.id !== currentUser?.userId) {
+        if (targetPost && targetPost.author?.id) {
           if (data.userVote === 1) {
             sendLiveNotification(targetPost.author.id, {
               type: 'vote',
@@ -314,7 +314,7 @@ export default function Posts() {
         const targetPost = posts.find((p) => p.id === postId);
 
         // Dispatch live notification to post author
-        if (targetPost && targetPost.author?.id && targetPost.author.id !== currentUser?.userId) {
+        if (targetPost && targetPost.author?.id) {
           sendLiveNotification(targetPost.author.id, {
             type: 'comment',
             title: 'New Comment 💬',
@@ -371,15 +371,27 @@ export default function Posts() {
         const commentsList = postComments[postId] || [];
         const parentComment = commentsList.find((c) => c.id === parentCommentId);
 
+        const targetPost = posts.find((p) => p.id === postId);
+
         // Target user to notify: specific reply author if provided, else parentComment author
         const notifyTarget = replyToUserId || parentComment?.author?.id;
 
-        // Dispatch live notification
-        if (notifyTarget && notifyTarget !== currentUser?.userId) {
+        // Dispatch live notification to comment/reply author
+        if (notifyTarget) {
           sendLiveNotification(notifyTarget, {
             type: 'comment',
             title: 'New Reply 💬',
             message: `${currentUser?.username || 'A user'} replied: "${replyBody.length > 40 ? replyBody.slice(0, 40) + '...' : replyBody}"`,
+            link: '/posts',
+          });
+        }
+
+        // Also notify post author if different from comment author
+        if (targetPost && targetPost.author?.id && targetPost.author.id !== notifyTarget) {
+          sendLiveNotification(targetPost.author.id, {
+            type: 'comment',
+            title: 'New Reply on Your Post 💬',
+            message: `${currentUser?.username || 'A user'} replied to a thread in your post: "${replyBody.length > 40 ? replyBody.slice(0, 40) + '...' : replyBody}"`,
             link: '/posts',
           });
         }

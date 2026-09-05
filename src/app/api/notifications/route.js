@@ -97,8 +97,7 @@ export async function POST(req) {
 
     const now = new Date();
     // Asymmetrically encrypt notification message using Scratch ECC (Algorithm 2)
-    const keyVersion = 'v1';
-    const encryptedMessage = await encryptPostContent(message, keyVersion);
+    const { ciphertext: encryptedMessage, version: keyVersion } = await encryptPostContent(message);
 
     // Compute Scratch HMAC-SHA256 MAC over ciphertext for data integrity
     const integrityPayload = `${encryptedMessage}:${recipientId}:${now.toISOString()}`;
@@ -110,7 +109,7 @@ export async function POST(req) {
       type: type || 'system',
       title,
       message: encryptedMessage,
-      keyVersion,
+      keyVersion: keyVersion || 'v1',
       mac,
       link: link || '',
       read: false,

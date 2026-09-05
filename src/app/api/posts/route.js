@@ -105,7 +105,7 @@ export async function GET(req) {
           userVote,
           commentsCount,
           author: {
-            id: post.author._id,
+            id: post.author._id.toString(),
             username: authorUsername,
             role: post.author.role,
           },
