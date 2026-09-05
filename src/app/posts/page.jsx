@@ -23,8 +23,11 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
+import { useSocket } from '@/context/SocketContext';
 
 export default function Posts() {
+  const { sendLiveNotification } = useSocket();
+  const [currentUser, setCurrentUser] = useState(null);
   const [posts, setPosts] = useState([]);
   const [content, setContent] = useState('');
   const [filter, setFilter] = useState('all'); // 'all' | 'friends'
@@ -80,6 +83,19 @@ export default function Posts() {
     fetchPosts(filter);
   }, [filter]);
 
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    fetch('/api/auth/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.userId) setCurrentUser(data);
+      })
+      .catch(() => {});
+  }, []);
+
   const handleCreatePost = async (e) => {
     e.preventDefault();
     if (!content.trim()) return;
@@ -109,22 +125,28 @@ export default function Posts() {
         setError(data.message || 'Failed to create post');
       }
     } catch (err) {
-      setError('Failed to create post');
+      setError('Failed to create post: ' + err.message);
     } finally {
       setIsPosting(false);
     }
   };
 
-  const handleEditStart = (post) => {
+  const handleStartEdit = (post) => {
     setEditingPostId(post.id);
     setEditContent(post.content);
   };
 
-  const handleEditSave = async (postId) => {
+  const handleCancelEdit = () => {
+    setEditingPostId(null);
+    setEditContent('');
+  };
+
+  const handleUpdatePost = async (postId) => {
     if (!editContent.trim()) return;
-    setIsUpdating(true);
+
     setError('');
     setSuccess('');
+    setIsUpdating(true);
 
     try {
       const token = localStorage.getItem('token');
@@ -137,23 +159,29 @@ export default function Posts() {
         body: JSON.stringify({ content: editContent }),
       });
 
+      const data = await response.json();
+
       if (response.ok) {
-        setSuccess('Post updated and re-encrypted successfully.');
         setEditingPostId(null);
+        setEditContent('');
+        setSuccess('Post updated with fresh Scratch ECC encryption & HMAC MAC.');
         fetchPosts(filter);
       } else {
-        const data = await response.json();
-        setError(data.message || 'Failed to edit post');
+        setError(data.message || 'Failed to update post');
       }
     } catch (err) {
-      setError('Failed to edit post');
+      setError('Failed to update post: ' + err.message);
     } finally {
       setIsUpdating(false);
     }
   };
 
   const handleDeletePost = async (postId) => {
-    if (!confirm('Are you sure you want to delete this post?')) return;
+    if (!confirm('Are you sure you want to delete this encrypted post?')) return;
+
+    setError('');
+    setSuccess('');
+
     try {
       const token = localStorage.getItem('token');
       const response = await fetch(`/api/posts/${postId}`, {
@@ -162,7 +190,7 @@ export default function Posts() {
       });
 
       if (response.ok) {
-        setSuccess('Post deleted successfully.');
+        setSuccess('Post deleted successfully');
         fetchPosts(filter);
       } else {
         const data = await response.json();
@@ -192,6 +220,20 @@ export default function Posts() {
 
       if (res.ok) {
         const data = await res.json();
+        const targetPost = posts.find((p) => p.id === postId);
+
+        // Dispatch live notification if upvoted
+        if (targetPost && targetPost.author?.id && targetPost.author.id !== currentUser?.userId) {
+          if (data.userVote === 1) {
+            sendLiveNotification(targetPost.author.id, {
+              type: 'vote',
+              title: 'Post Upvoted! 👍',
+              message: `${currentUser?.username || 'A user'} upvoted your post!`,
+              link: '/posts',
+            });
+          }
+        }
+
         setPosts((prevPosts) =>
           prevPosts.map((p) =>
             p.id === postId
@@ -269,6 +311,18 @@ export default function Posts() {
 
       if (res.ok) {
         const data = await res.json();
+        const targetPost = posts.find((p) => p.id === postId);
+
+        // Dispatch live notification to post author
+        if (targetPost && targetPost.author?.id && targetPost.author.id !== currentUser?.userId) {
+          sendLiveNotification(targetPost.author.id, {
+            type: 'comment',
+            title: 'New Comment 💬',
+            message: `${currentUser?.username || 'A user'} commented: "${commentBody.length > 40 ? commentBody.slice(0, 40) + '...' : commentBody}"`,
+            link: '/posts',
+          });
+        }
+
         setPostComments((prev) => ({
           ...prev,
           [postId]: [...(prev[postId] || []), data.comment],
@@ -313,6 +367,19 @@ export default function Posts() {
 
       if (res.ok) {
         const data = await res.json();
+        const commentsList = postComments[postId] || [];
+        const parentComment = commentsList.find((c) => c.id === parentCommentId);
+
+        // Dispatch live notification to parent comment author
+        if (parentComment && parentComment.author?.id && parentComment.author.id !== currentUser?.userId) {
+          sendLiveNotification(parentComment.author.id, {
+            type: 'comment',
+            title: 'Reply to Your Comment 💬',
+            message: `${currentUser?.username || 'A user'} replied: "${replyBody.length > 40 ? replyBody.slice(0, 40) + '...' : replyBody}"`,
+            link: '/posts',
+          });
+        }
+
         setPostComments((prev) => ({
           ...prev,
           [postId]: [...(prev[postId] || []), data.comment],

@@ -4,7 +4,33 @@
 import React, { useEffect } from 'react';
 import { useSocket } from '@/context/SocketContext';
 import { useRouter } from 'next/navigation';
-import { MessageSquare, UserPlus, Shield, X, ArrowRight, Bell } from 'lucide-react';
+import { MessageSquare, UserPlus, Shield, X, ArrowRight, Bell, ThumbsUp, MessageCircle, Heart } from 'lucide-react';
+
+function playNotificationChime() {
+  if (typeof window === 'undefined') return;
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.12); // A5
+
+    gain.gain.setValueAtTime(0.08, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.35);
+  } catch (e) {
+    // Audio context may require user interaction first
+  }
+}
 
 export default function NotificationToast() {
   const { notifications, dismissNotification } = useSocket();
@@ -12,6 +38,9 @@ export default function NotificationToast() {
 
   useEffect(() => {
     if (notifications.length === 0) return;
+
+    // Play subtle chime on arrival
+    playNotificationChime();
 
     // Auto-dismiss the oldest notification after 6 seconds
     const timer = setTimeout(() => {
@@ -31,11 +60,16 @@ export default function NotificationToast() {
         const getIcon = () => {
           switch (notif.type) {
             case 'message':
-              return <MessageSquare className="w-5 h-5 text-emerald-400 flex-shrink-0" />;
+              return <MessageSquare className="w-5 h-5 text-sky-400 flex-shrink-0" />;
             case 'connection':
               return <UserPlus className="w-5 h-5 text-indigo-400 flex-shrink-0" />;
+            case 'comment':
+              return <MessageCircle className="w-5 h-5 text-emerald-400 flex-shrink-0" />;
+            case 'post':
+            case 'vote':
+              return <ThumbsUp className="w-5 h-5 text-amber-400 flex-shrink-0" />;
             default:
-              return <Bell className="w-5 h-5 text-amber-400 flex-shrink-0" />;
+              return <Bell className="w-5 h-5 text-indigo-300 flex-shrink-0" />;
           }
         };
 
