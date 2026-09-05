@@ -36,18 +36,59 @@ export function SocketProvider({ children }) {
     setAuthToken(t);
   }, [pathname]);
 
+  // Fetch persistent notifications on auth token ready
+  useEffect(() => {
+    if (!authToken) {
+      setNotifications([]);
+      return;
+    }
+
+    fetch('/api/notifications', {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.notifications) {
+          setNotifications(data.notifications);
+        }
+      })
+      .catch(() => {});
+  }, [authToken]);
+
   const addNotification = useCallback((notif) => {
     const id = notif.id || 'notif_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
     const newNotif = { ...notif, id, createdAt: notif.createdAt || new Date().toISOString() };
-    setNotifications((prev) => [newNotif, ...prev.slice(0, 4)]); // Keep max 5 recent notifications
+    setNotifications((prev) => [newNotif, ...prev.filter((n) => n.id !== id).slice(0, 29)]);
   }, []);
 
   const dismissNotification = useCallback((id) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    if (token && id && !id.startsWith('temp_') && !id.startsWith('notif_')) {
+      fetch('/api/notifications', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ id }),
+      }).catch(() => {});
+    }
   }, []);
 
   const clearAllNotifications = useCallback(() => {
     setNotifications([]);
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    if (token) {
+      fetch('/api/notifications', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ all: true }),
+      }).catch(() => {});
+    }
   }, []);
 
   const markConversationAsRead = useCallback(async (senderId) => {
@@ -277,11 +318,31 @@ export function SocketProvider({ children }) {
   );
 
   const sendLiveNotification = useCallback((recipientId, notifData) => {
+    // 1. Live WebSocket broadcast
     if (socketRef.current && socketRef.current.connected && recipientId) {
       socketRef.current.emit('send_notification', {
         recipientId,
         ...notifData,
       });
+    }
+
+    // 2. Persist to MongoDB Notification schema for offline & cross-session retrieval
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    if (token && recipientId) {
+      fetch('/api/notifications', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          recipientId,
+          type: notifData.type,
+          title: notifData.title,
+          message: notifData.message,
+          link: notifData.link,
+        }),
+      }).catch((e) => console.warn('Notification persistence error:', e));
     }
   }, []);
 

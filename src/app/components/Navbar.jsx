@@ -178,24 +178,6 @@ export default function Navbar() {
                     Profile (RSA)
                   </Link>
 
-                  <button
-                    type="button"
-                    onClick={() => setShowNotificationsDropdown((prev) => !prev)}
-                    className={`inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition relative ${
-                      showNotificationsDropdown
-                        ? 'bg-slate-800 text-white'
-                        : 'text-slate-300 hover:bg-slate-800/50 hover:text-white'
-                    }`}
-                  >
-                    <Bell className="h-4 w-4 mr-1.5 text-amber-400" />
-                    <span>Notifications</span>
-                    {isMounted && notifications.length > 0 && (
-                      <span className="ml-1.5 bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full animate-pulse">
-                        {notifications.length}
-                      </span>
-                    )}
-                  </button>
-
                   {currentUser?.role === 'admin' && (
                     <Link
                       href="/admin"
