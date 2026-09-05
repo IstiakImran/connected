@@ -9,6 +9,7 @@ import {
 import { User } from '@/schema/User';
 import { Post } from '@/schema/Posts';
 import { Connection } from '@/schema/Connection';
+import { Comment } from '@/schema/Comment';
 import { NextResponse } from 'next/server';
 
 export async function GET(req, { params }) {
@@ -92,6 +93,16 @@ export async function GET(req, { params }) {
           decryptedContent = '[Decryption error: Corrupt ciphertext]';
         }
 
+        // Voting & comments metrics
+        const votes = post.votes || [];
+        const upvotes = votes.filter((v) => v.voteType === 1).length;
+        const downvotes = votes.filter((v) => v.voteType === -1).length;
+        const score = upvotes - downvotes;
+        const userVoteObj = votes.find((v) => v.user && v.user.toString() === session.id);
+        const userVote = userVoteObj ? userVoteObj.voteType : 0;
+
+        const commentsCount = await Comment.countDocuments({ post: post._id });
+
         return {
           id: post._id.toString(),
           content: decryptedContent,
@@ -100,6 +111,11 @@ export async function GET(req, { params }) {
           integrityVerified: isIntegrityValid,
           createdAt: post.createdAt,
           updatedAt: post.updatedAt,
+          score,
+          upvotes,
+          downvotes,
+          userVote,
+          commentsCount,
         };
       })
     );

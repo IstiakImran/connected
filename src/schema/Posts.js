@@ -11,6 +11,15 @@ const PostSchema = new Schema({
   // Message Authentication Code (MAC) verifying data integrity & detecting tampering
   mac: { type: String, required: true },
 
+  // Interactive Engagement: Upvotes (+1) & Downvotes (-1)
+  votes: [
+    {
+      user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+      voteType: { type: Number, enum: [1, -1], required: true },
+      createdAt: { type: Date, default: Date.now },
+    },
+  ],
+
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });

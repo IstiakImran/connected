@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import { Post } from "@/schema/Posts";
 import { User } from "@/schema/User";
 import { Connection } from "@/schema/Connection";
+import { Comment } from "@/schema/Comment";
 
 export async function GET(req) {
   const authHeader = req.headers.get("Authorization");
@@ -78,6 +79,16 @@ export async function GET(req) {
         const isAuthor = post.author._id.toString() === session.id;
         const isAdmin = session.role === 'admin';
 
+        // Voting & comments metrics
+        const votes = post.votes || [];
+        const upvotes = votes.filter((v) => v.voteType === 1).length;
+        const downvotes = votes.filter((v) => v.voteType === -1).length;
+        const score = upvotes - downvotes;
+        const userVoteObj = votes.find((v) => v.user && v.user.toString() === session.id);
+        const userVote = userVoteObj ? userVoteObj.voteType : 0;
+
+        const commentsCount = await Comment.countDocuments({ post: post._id });
+
         return {
           id: post._id,
           content: decryptedContent,
@@ -88,6 +99,11 @@ export async function GET(req) {
           mac: post.mac,
           integrityVerified: isIntegrityValid,
           canEdit: isAuthor || isAdmin,
+          score,
+          upvotes,
+          downvotes,
+          userVote,
+          commentsCount,
           author: {
             id: post.author._id,
             username: authorUsername,

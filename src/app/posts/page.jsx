@@ -16,6 +16,12 @@ import {
   X,
   Lock,
   Users,
+  ArrowBigUp,
+  ArrowBigDown,
+  CornerDownRight,
+  Reply,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 export default function Posts() {
@@ -30,6 +36,16 @@ export default function Posts() {
   const [isPosting, setIsPosting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const router = useRouter();
+
+  // Voting & Comments States
+  const [votingLoading, setVotingLoading] = useState({});
+  const [expandedComments, setExpandedComments] = useState({});
+  const [postComments, setPostComments] = useState({});
+  const [loadingComments, setLoadingComments] = useState({});
+  const [newCommentText, setNewCommentText] = useState({});
+  const [replyingTo, setReplyingTo] = useState({});
+  const [replyText, setReplyText] = useState({});
+  const [submittingComment, setSubmittingComment] = useState({});
 
   const fetchPosts = async (currentFilter = filter) => {
     try {
@@ -88,7 +104,7 @@ export default function Posts() {
       if (response.ok) {
         setContent('');
         setSuccess('Post encrypted via Scratch ECC and signed with HMAC MAC.');
-        fetchPosts();
+        fetchPosts(filter);
       } else {
         setError(data.message || 'Failed to create post');
       }
@@ -121,12 +137,12 @@ export default function Posts() {
         body: JSON.stringify({ content: editContent }),
       });
 
-      const data = await response.json();
       if (response.ok) {
+        setSuccess('Post updated and re-encrypted successfully.');
         setEditingPostId(null);
-        setSuccess('Post updated, re-encrypted with Scratch ECC, and re-signed with new MAC.');
-        fetchPosts();
+        fetchPosts(filter);
       } else {
+        const data = await response.json();
         setError(data.message || 'Failed to edit post');
       }
     } catch (err) {
@@ -147,13 +163,175 @@ export default function Posts() {
 
       if (response.ok) {
         setSuccess('Post deleted successfully.');
-        fetchPosts();
+        fetchPosts(filter);
       } else {
         const data = await response.json();
         setError(data.message || 'Failed to delete post');
       }
     } catch (err) {
       setError('Failed to delete post');
+    }
+  };
+
+  // Upvote / Downvote Handler
+  const handleVote = async (postId, voteType) => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    setVotingLoading((prev) => ({ ...prev, [postId]: true }));
+
+    try {
+      const res = await fetch(`/api/posts/${postId}/vote`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ voteType }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setPosts((prevPosts) =>
+          prevPosts.map((p) =>
+            p.id === postId
+              ? {
+                  ...p,
+                  score: data.score,
+                  upvotes: data.upvotes,
+                  downvotes: data.downvotes,
+                  userVote: data.userVote,
+                }
+              : p
+          )
+        );
+      }
+    } catch (err) {
+      console.error('Vote failed:', err);
+    } finally {
+      setVotingLoading((prev) => ({ ...prev, [postId]: false }));
+    }
+  };
+
+  // Comments Fetch & Toggle
+  const toggleComments = async (postId) => {
+    setExpandedComments((prev) => {
+      const nextState = !prev[postId];
+      if (nextState && !postComments[postId]) {
+        fetchComments(postId);
+      }
+      return { ...prev, [postId]: nextState };
+    });
+  };
+
+  const fetchComments = async (postId) => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    setLoadingComments((prev) => ({ ...prev, [postId]: true }));
+
+    try {
+      const res = await fetch(`/api/posts/${postId}/comments`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setPostComments((prev) => ({ ...prev, [postId]: data.comments || [] }));
+      }
+    } catch (err) {
+      console.error('Fetch comments error:', err);
+    } finally {
+      setLoadingComments((prev) => ({ ...prev, [postId]: false }));
+    }
+  };
+
+  // Post top-level comment
+  const handleAddComment = async (e, postId) => {
+    e.preventDefault();
+    const commentBody = (newCommentText[postId] || '').trim();
+    if (!commentBody) return;
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    setSubmittingComment((prev) => ({ ...prev, [postId]: true }));
+
+    try {
+      const res = await fetch(`/api/posts/${postId}/comments`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ content: commentBody }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setPostComments((prev) => ({
+          ...prev,
+          [postId]: [...(prev[postId] || []), data.comment],
+        }));
+        setNewCommentText((prev) => ({ ...prev, [postId]: '' }));
+        setPosts((prevPosts) =>
+          prevPosts.map((p) =>
+            p.id === postId ? { ...p, commentsCount: (p.commentsCount || 0) + 1 } : p
+          )
+        );
+      } else {
+        const errData = await res.json();
+        setError(errData.message || 'Failed to post comment');
+      }
+    } catch (err) {
+      setError('Error posting comment: ' + err.message);
+    } finally {
+      setSubmittingComment((prev) => ({ ...prev, [postId]: false }));
+    }
+  };
+
+  // Post direct reply to a comment
+  const handleAddReply = async (e, postId, parentCommentId) => {
+    e.preventDefault();
+    const replyBody = (replyText[parentCommentId] || '').trim();
+    if (!replyBody) return;
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    setSubmittingComment((prev) => ({ ...prev, [parentCommentId]: true }));
+
+    try {
+      const res = await fetch(`/api/posts/${postId}/comments`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ content: replyBody, parentId: parentCommentId }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setPostComments((prev) => ({
+          ...prev,
+          [postId]: [...(prev[postId] || []), data.comment],
+        }));
+        setReplyText((prev) => ({ ...prev, [parentCommentId]: '' }));
+        setReplyingTo((prev) => ({ ...prev, [parentCommentId]: false }));
+        setPosts((prevPosts) =>
+          prevPosts.map((p) =>
+            p.id === postId ? { ...p, commentsCount: (p.commentsCount || 0) + 1 } : p
+          )
+        );
+      } else {
+        const errData = await res.json();
+        setError(errData.message || 'Failed to post reply');
+      }
+    } catch (err) {
+      setError('Error posting reply: ' + err.message);
+    } finally {
+      setSubmittingComment((prev) => ({ ...prev, [parentCommentId]: false }));
     }
   };
 
@@ -177,7 +355,7 @@ export default function Posts() {
             <div>
               <h2 className="text-sm font-bold text-white">Algorithm 2: Scratch ECC Active (secp256k1)</h2>
               <p className="text-xs text-slate-400">
-                Posts are asymmetrically encrypted with scratch ECC before database storage; integrity is verified using Scratch HMAC-SHA256.
+                Posts and comments are asymmetrically encrypted with Scratch ECC before database storage; integrity is verified with Scratch HMAC-SHA256.
               </p>
             </div>
           </div>
@@ -216,22 +394,23 @@ export default function Posts() {
               className="block w-full p-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
             />
             <div className="flex items-center justify-between pt-1">
-              <span className="text-xs text-slate-500 font-mono">
-                Payload auto-signed with HMAC MAC
+              <span className="text-xs text-slate-500 flex items-center">
+                <ShieldCheck className="w-3.5 h-3.5 mr-1 text-emerald-400" />
+                Zero-Knowledge Storage
               </span>
               <button
                 type="submit"
                 disabled={isPosting || !content.trim()}
-                className="inline-flex items-center px-4 py-2 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 transition shadow"
+                className="inline-flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition"
               >
                 {isPosting ? (
                   <>
-                    <Loader className="animate-spin -ml-1 mr-2 h-4 w-4" />
-                    Encrypting & Posting...
+                    <Loader className="w-4 h-4 mr-2 animate-spin" />
+                    Encrypting...
                   </>
                 ) : (
                   <>
-                    <Send className="-ml-1 mr-2 h-4 w-4" />
+                    <Send className="w-4 h-4 mr-2" />
                     Encrypt & Post (ECC)
                   </>
                 )}
@@ -289,132 +468,406 @@ export default function Posts() {
               </p>
             </div>
           ) : (
-            posts.map((post) => (
-              <div key={post.id} className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3 shadow-md">
-                {/* Header: Author, Role, Date, Key Version, MAC Badge */}
-                <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
-                  <div className="flex items-center space-x-2">
-                    <Link
-                      href={`/users/${post.author.id}`}
-                      className="font-semibold text-sm text-white hover:text-indigo-400 transition flex items-center space-x-1"
-                    >
-                      <span>{post.author.username}</span>
-                    </Link>
-                    <Link
-                      href="/messages"
-                      title={`Message @${post.author.username}`}
-                      className="text-slate-500 hover:text-emerald-400 p-0.5 transition"
-                    >
-                      <MessageSquare className="w-3 h-3" />
-                    </Link>
-                    <span
-                      className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
-                        post.author.role === 'admin'
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                          : 'bg-slate-800 text-slate-400 border border-slate-700'
-                      }`}
-                    >
-                      {post.author.role || 'user'}
-                    </span>
-                    <span className="text-xs text-slate-500">•</span>
-                    <time className="text-xs text-slate-500" dateTime={post.createdAt}>
-                      {new Date(post.createdAt).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </time>
-                  </div>
+            posts.map((post) => {
+              const isUpvoted = post.userVote === 1;
+              const isDownvoted = post.userVote === -1;
+              const isCommentsOpen = !!expandedComments[post.id];
+              const comments = postComments[post.id] || [];
+              const isCommentsLoading = loadingComments[post.id];
 
-                  <div className="flex items-center space-x-2">
-                    <span className="text-[11px] font-mono px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-indigo-300">
-                      Key: {post.keyVersion}
-                    </span>
+              // Group top-level comments and replies
+              const rootComments = comments.filter((c) => !c.parentId);
+              const repliesByParent = comments.reduce((acc, c) => {
+                if (c.parentId) {
+                  acc[c.parentId] = acc[c.parentId] || [];
+                  acc[c.parentId].push(c);
+                }
+                return acc;
+              }, {});
 
-                    {/* Data Integrity MAC Badge */}
-                    {post.integrityVerified ? (
-                      <span className="inline-flex items-center space-x-1 text-[11px] px-2 py-0.5 bg-emerald-950/70 border border-emerald-700/60 rounded text-emerald-300">
-                        <ShieldCheck className="w-3 h-3" />
-                        <span>MAC Verified</span>
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center space-x-1 text-[11px] px-2 py-0.5 bg-rose-950/70 border border-rose-700/60 rounded text-rose-300">
-                        <ShieldAlert className="w-3 h-3" />
-                        <span>Integrity Failed</span>
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Content or Inline Editor */}
-                {editingPostId === post.id ? (
-                  <div className="space-y-2 pt-1">
-                    <div className="text-xs text-indigo-400 font-semibold">
-                      Edit Post (Will automatically re-encrypt with active ECC key & update MAC):
-                    </div>
-                    <textarea
-                      value={editContent}
-                      onChange={(e) => setEditContent(e.target.value)}
-                      rows="3"
-                      className="block w-full p-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                    <div className="flex justify-end space-x-2">
-                      <button
-                        type="button"
-                        onClick={() => setEditingPostId(null)}
-                        className="px-3 py-1.5 border border-slate-700 rounded-lg text-xs text-slate-300 hover:bg-slate-800"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isUpdating}
-                        onClick={() => handleEditSave(post.id)}
-                        className="inline-flex items-center px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-semibold text-white transition disabled:opacity-50"
-                      >
-                        {isUpdating ? 'Re-encrypting...' : 'Save & Re-encrypt'}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <p className="text-slate-100 text-sm whitespace-pre-wrap leading-relaxed">{post.content}</p>
-                    {post.updatedAt && post.updatedAt !== post.createdAt && (
-                      <span className="text-[11px] text-slate-500 italic block mt-1">
-                        (Edited: {new Date(post.updatedAt).toLocaleTimeString()})
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                {/* Footer: Database Ciphertext Preview and Edit/Delete Actions */}
-                <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-xs text-slate-500">
-                  <div className="font-mono text-[11px] text-slate-500 truncate max-w-xs sm:max-w-md">
-                    <span className="text-slate-400">Ciphertext:</span> {post.rawCiphertextPreview}
-                  </div>
-
-                  {post.canEdit && editingPostId !== post.id && (
+              return (
+                <div key={post.id} className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3 shadow-md">
+                  {/* Header: Author, Role, Date, Key Version, MAC Badge */}
+                  <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
                     <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => handleEditStart(post)}
-                        className="inline-flex items-center text-xs text-indigo-400 hover:text-indigo-300 px-2 py-1 rounded hover:bg-slate-800 transition"
+                      <Link
+                        href={`/users/${post.author.id}`}
+                        className="font-semibold text-sm text-white hover:text-indigo-400 transition flex items-center space-x-1"
                       >
-                        <Edit3 className="w-3.5 h-3.5 mr-1" />
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeletePost(post.id)}
-                        className="inline-flex items-center text-xs text-rose-400 hover:text-rose-300 px-2 py-1 rounded hover:bg-slate-800 transition"
+                        <span>{post.author.username}</span>
+                      </Link>
+                      <Link
+                        href="/messages"
+                        title={`Message @${post.author.username}`}
+                        className="text-slate-500 hover:text-emerald-400 p-0.5 transition"
                       >
-                        <Trash2 className="w-3.5 h-3.5 mr-1" />
-                        Delete
+                        <MessageSquare className="w-3 h-3" />
+                      </Link>
+                      <span
+                        className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                          post.author.role === 'admin'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            : 'bg-slate-800 text-slate-400 border border-slate-700'
+                        }`}
+                      >
+                        {post.author.role || 'user'}
+                      </span>
+                      <span className="text-xs text-slate-500">•</span>
+                      <time className="text-xs text-slate-500" dateTime={post.createdAt}>
+                        {new Date(post.createdAt).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </time>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <span className="text-[11px] font-mono px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-indigo-300">
+                        Key: {post.keyVersion}
+                      </span>
+
+                      {/* Data Integrity MAC Badge */}
+                      {post.integrityVerified ? (
+                        <span className="inline-flex items-center space-x-1 text-[11px] px-2 py-0.5 bg-emerald-950/70 border border-emerald-700/60 rounded text-emerald-300">
+                          <ShieldCheck className="w-3 h-3" />
+                          <span>MAC Verified</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center space-x-1 text-[11px] px-2 py-0.5 bg-rose-950/70 border border-rose-700/60 rounded text-rose-300">
+                          <ShieldAlert className="w-3 h-3" />
+                          <span>Integrity Failed</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Content or Inline Editor */}
+                  {editingPostId === post.id ? (
+                    <div className="space-y-2 pt-1">
+                      <div className="text-xs text-indigo-400 font-semibold">
+                        Edit Post (Will automatically re-encrypt with active ECC key & update MAC):
+                      </div>
+                      <textarea
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        rows="3"
+                        className="block w-full p-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <div className="flex justify-end space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingPostId(null)}
+                          className="px-3 py-1.5 border border-slate-700 rounded-lg text-xs text-slate-300 hover:bg-slate-800"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isUpdating}
+                          onClick={() => handleEditSave(post.id)}
+                          className="inline-flex items-center px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-semibold text-white transition disabled:opacity-50"
+                        >
+                          {isUpdating ? 'Re-encrypting...' : 'Save & Re-encrypt'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-slate-100 text-sm whitespace-pre-wrap leading-relaxed">{post.content}</p>
+                      {post.updatedAt && post.updatedAt !== post.createdAt && (
+                        <span className="text-[11px] text-slate-500 italic block mt-1">
+                          (Edited: {new Date(post.updatedAt).toLocaleTimeString()})
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Engagement Bar: Upvote/Downvote, Comments Button, Ciphertext, Actions */}
+                  <div className="pt-3 border-t border-slate-800/60 flex flex-wrap items-center justify-between gap-3 text-xs">
+                    {/* Left: Voting & Comments Widget */}
+                    <div className="flex items-center space-x-3">
+                      {/* Upvote & Downvote Control */}
+                      <div className="flex items-center bg-slate-800/80 border border-slate-700 rounded-lg p-0.5">
+                        <button
+                          onClick={() => handleVote(post.id, 1)}
+                          disabled={votingLoading[post.id]}
+                          title="Upvote post"
+                          className={`p-1 rounded hover:bg-slate-700 transition ${
+                            isUpvoted
+                              ? 'text-amber-400 bg-amber-500/20'
+                              : 'text-slate-400 hover:text-amber-400'
+                          }`}
+                        >
+                          <ArrowBigUp className={`w-4 h-4 ${isUpvoted ? 'fill-amber-400' : ''}`} />
+                        </button>
+
+                        <span
+                          className={`px-2 font-mono text-xs font-bold ${
+                            post.score > 0
+                              ? 'text-emerald-400'
+                              : post.score < 0
+                              ? 'text-rose-400'
+                              : 'text-slate-300'
+                          }`}
+                        >
+                          {post.score || 0}
+                        </span>
+
+                        <button
+                          onClick={() => handleVote(post.id, -1)}
+                          disabled={votingLoading[post.id]}
+                          title="Downvote post"
+                          className={`p-1 rounded hover:bg-slate-700 transition ${
+                            isDownvoted
+                              ? 'text-indigo-400 bg-indigo-500/20'
+                              : 'text-slate-400 hover:text-indigo-400'
+                          }`}
+                        >
+                          <ArrowBigDown className={`w-4 h-4 ${isDownvoted ? 'fill-indigo-400' : ''}`} />
+                        </button>
+                      </div>
+
+                      {/* Comments Toggle Button */}
+                      <button
+                        onClick={() => toggleComments(post.id)}
+                        className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border transition ${
+                          isCommentsOpen
+                            ? 'bg-indigo-950/70 border-indigo-700 text-indigo-300'
+                            : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>{post.commentsCount || 0} Comments</span>
+                        {isCommentsOpen ? (
+                          <ChevronUp className="w-3.5 h-3.5 ml-0.5" />
+                        ) : (
+                          <ChevronDown className="w-3.5 h-3.5 ml-0.5" />
+                        )}
                       </button>
+                    </div>
+
+                    {/* Right: Actions & Ciphertext */}
+                    <div className="flex items-center space-x-3 text-slate-500">
+                      <div className="hidden sm:block font-mono text-[10px] truncate max-w-xs text-slate-500">
+                        <span className="text-slate-400">Cipher:</span> {post.rawCiphertextPreview}
+                      </div>
+
+                      {post.canEdit && editingPostId !== post.id && (
+                        <div className="flex items-center space-x-1">
+                          <button
+                            onClick={() => handleEditStart(post)}
+                            className="inline-flex items-center text-xs text-indigo-400 hover:text-indigo-300 px-2 py-1 rounded hover:bg-slate-800 transition"
+                          >
+                            <Edit3 className="w-3 h-3 mr-1" />
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeletePost(post.id)}
+                            className="inline-flex items-center text-xs text-rose-400 hover:text-rose-300 px-2 py-1 rounded hover:bg-slate-800 transition"
+                          >
+                            <Trash2 className="w-3 h-3 mr-1" />
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Expandable Comments & Replies Section */}
+                  {isCommentsOpen && (
+                    <div className="pt-4 border-t border-slate-800/80 space-y-4">
+                      {/* Add New Top-Level Comment Form */}
+                      <form onSubmit={(e) => handleAddComment(e, post.id)} className="flex items-start space-x-2">
+                        <textarea
+                          rows="2"
+                          placeholder="Write an asymmetrically encrypted comment (Scratch ECC)..."
+                          value={newCommentText[post.id] || ''}
+                          onChange={(e) =>
+                            setNewCommentText((prev) => ({ ...prev, [post.id]: e.target.value }))
+                          }
+                          className="flex-1 bg-slate-800/80 border border-slate-700 rounded-lg p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                        <button
+                          type="submit"
+                          disabled={submittingComment[post.id] || !(newCommentText[post.id] || '').trim()}
+                          className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold disabled:opacity-50 transition flex items-center space-x-1"
+                        >
+                          {submittingComment[post.id] ? (
+                            <Loader className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <>
+                              <Send className="w-3.5 h-3.5" />
+                              <span>Post</span>
+                            </>
+                          )}
+                        </button>
+                      </form>
+
+                      {/* Comments Stream */}
+                      {isCommentsLoading ? (
+                        <div className="text-center py-6 text-xs text-slate-500 flex items-center justify-center space-x-2">
+                          <Loader className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                          <span>Decrypting comments with Scratch ECC...</span>
+                        </div>
+                      ) : rootComments.length === 0 ? (
+                        <div className="text-center py-6 text-xs text-slate-500 bg-slate-950/40 rounded-lg border border-slate-800/50">
+                          No comments yet. Be the first to start the discussion!
+                        </div>
+                      ) : (
+                        <div className="space-y-3 pt-1">
+                          {rootComments.map((comment) => {
+                            const replies = repliesByParent[comment.id] || [];
+                            const isReplying = !!replyingTo[comment.id];
+
+                            return (
+                              <div key={comment.id} className="space-y-2">
+                                {/* Parent Comment */}
+                                <div className="bg-slate-800/60 border border-slate-750 rounded-lg p-3 space-y-1.5">
+                                  <div className="flex items-center justify-between text-xs">
+                                    <div className="flex items-center space-x-2">
+                                      <Link
+                                        href={`/users/${comment.author.id}`}
+                                        className="font-bold text-slate-200 hover:text-indigo-400"
+                                      >
+                                        @{comment.author.username}
+                                      </Link>
+                                      <span className="text-[10px] text-slate-500">
+                                        {new Date(comment.createdAt).toLocaleTimeString([], {
+                                          hour: '2-digit',
+                                          minute: '2-digit',
+                                        })}
+                                      </span>
+                                    </div>
+
+                                    {comment.integrityVerified ? (
+                                      <span className="text-[10px] text-emerald-400 flex items-center space-x-1 font-mono">
+                                        <ShieldCheck className="w-3 h-3" />
+                                        <span>MAC Verified</span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] text-rose-400 flex items-center space-x-1 font-mono">
+                                        <ShieldAlert className="w-3 h-3" />
+                                        <span>MAC Failed</span>
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <p className="text-xs text-slate-100 whitespace-pre-wrap leading-relaxed">
+                                    {comment.content}
+                                  </p>
+
+                                  <div className="pt-1 flex items-center justify-between text-[11px]">
+                                    <button
+                                      onClick={() =>
+                                        setReplyingTo((prev) => ({
+                                          ...prev,
+                                          [comment.id]: !prev[comment.id],
+                                        }))
+                                      }
+                                      className="text-indigo-400 hover:text-indigo-300 font-medium flex items-center space-x-1"
+                                    >
+                                      <Reply className="w-3 h-3" />
+                                      <span>Reply</span>
+                                    </button>
+
+                                    <span className="text-[10px] font-mono text-slate-500">
+                                      ECC {comment.keyVersion}
+                                    </span>
+                                  </div>
+
+                                  {/* Inline Reply Input */}
+                                  {isReplying && (
+                                    <form
+                                      onSubmit={(e) => handleAddReply(e, post.id, comment.id)}
+                                      className="pt-2 flex items-start space-x-2"
+                                    >
+                                      <textarea
+                                        rows="2"
+                                        placeholder={`Reply to @${comment.author.username}...`}
+                                        value={replyText[comment.id] || ''}
+                                        onChange={(e) =>
+                                          setReplyText((prev) => ({
+                                            ...prev,
+                                            [comment.id]: e.target.value,
+                                          }))
+                                        }
+                                        className="flex-1 bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                      />
+                                      <button
+                                        type="submit"
+                                        disabled={
+                                          submittingComment[comment.id] ||
+                                          !(replyText[comment.id] || '').trim()
+                                        }
+                                        className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold disabled:opacity-50 transition"
+                                      >
+                                        {submittingComment[comment.id] ? (
+                                          <Loader className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          'Reply'
+                                        )}
+                                      </button>
+                                    </form>
+                                  )}
+                                </div>
+
+                                {/* Threaded / Indented Replies */}
+                                {replies.length > 0 && (
+                                  <div className="ml-6 sm:ml-8 pl-3 border-l-2 border-slate-700/60 space-y-2">
+                                    {replies.map((reply) => (
+                                      <div
+                                        key={reply.id}
+                                        className="bg-slate-800/40 border border-slate-750/70 rounded-lg p-2.5 space-y-1"
+                                      >
+                                        <div className="flex items-center justify-between text-xs">
+                                          <div className="flex items-center space-x-1.5">
+                                            <CornerDownRight className="w-3 h-3 text-indigo-400" />
+                                            <Link
+                                              href={`/users/${reply.author.id}`}
+                                              className="font-bold text-slate-200 hover:text-indigo-400"
+                                            >
+                                              @{reply.author.username}
+                                            </Link>
+                                            <span className="text-[10px] text-slate-500">
+                                              {new Date(reply.createdAt).toLocaleTimeString([], {
+                                                hour: '2-digit',
+                                                minute: '2-digit',
+                                              })}
+                                            </span>
+                                          </div>
+
+                                          {reply.integrityVerified ? (
+                                            <span className="text-[10px] text-emerald-400 flex items-center space-x-1 font-mono">
+                                              <ShieldCheck className="w-3 h-3" />
+                                              <span>MAC Verified</span>
+                                            </span>
+                                          ) : (
+                                            <span className="text-[10px] text-rose-400 flex items-center space-x-1 font-mono">
+                                              <ShieldAlert className="w-3 h-3" />
+                                              <span>MAC Failed</span>
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        <p className="text-xs text-slate-200 whitespace-pre-wrap pl-4">
+                                          {reply.content}
+                                        </p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
