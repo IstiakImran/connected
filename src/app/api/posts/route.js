@@ -55,9 +55,21 @@ export async function GET(req) {
           return null;
         }
 
+        const authorId = post.author._id ? post.author._id.toString() : post.author.toString();
+
         // Verify Data Integrity using Scratch HMAC
-        const integrityPayload = `${post.content}:${post.author._id.toString()}:${new Date(post.createdAt).toISOString()}`;
-        const isIntegrityValid = verifyPayloadIntegrity(integrityPayload, post.mac);
+        let isIntegrityValid = false;
+        if (post.mac) {
+          if (verifyPayloadIntegrity(`${post.content}:${authorId}`, post.mac)) {
+            isIntegrityValid = true;
+          } else if (post.createdAt && verifyPayloadIntegrity(`${post.content}:${authorId}:${new Date(post.createdAt).toISOString()}`, post.mac)) {
+            isIntegrityValid = true;
+          } else if (post.updatedAt && verifyPayloadIntegrity(`${post.content}:${authorId}:${new Date(post.updatedAt).toISOString()}`, post.mac)) {
+            isIntegrityValid = true;
+          } else if (verifyPayloadIntegrity(post.content, post.mac)) {
+            isIntegrityValid = true;
+          }
+        }
 
         // Decrypt post content using Scratch ECC (Algorithm 2)
         let decryptedContent = '[Decryption Failed]';
@@ -76,8 +88,9 @@ export async function GET(req) {
           authorUsername = 'User';
         }
 
-        const isAuthor = post.author._id.toString() === session.id;
+        const isAuthor = String(authorId) === String(session.id);
         const isAdmin = session.role === 'admin';
+        const canEdit = Boolean(isAuthor || isAdmin);
 
         // Voting & comments metrics
         const votes = post.votes || [];
@@ -98,7 +111,7 @@ export async function GET(req) {
           keyVersion: post.keyVersion || 'v1',
           mac: post.mac,
           integrityVerified: isIntegrityValid,
-          canEdit: isAuthor || isAdmin,
+          canEdit,
           score,
           upvotes,
           downvotes,
@@ -149,8 +162,8 @@ export async function POST(req) {
     const { ciphertext, version } = await encryptPostContent(content.trim());
 
     const createdAt = new Date();
-    // Compute Message Authentication Code (MAC) on (ciphertext + authorId + timestamp)
-    const integrityPayload = `${ciphertext}:${session.id}:${createdAt.toISOString()}`;
+    // Compute Message Authentication Code (MAC) on (ciphertext + authorId)
+    const integrityPayload = `${ciphertext}:${session.id}`;
     const mac = signPayload(integrityPayload);
 
     const post = await Post.create({

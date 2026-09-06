@@ -35,7 +35,8 @@ export async function PUT(req, { params }) {
     }
 
     // Check RBAC permission: Author or Admin can edit
-    const isAuthor = post.author.toString() === session.id;
+    const authorId = post.author ? post.author.toString() : '';
+    const isAuthor = String(authorId) === String(session.id);
     const isAdmin = session.role === 'admin';
     if (!isAuthor && !isAdmin) {
       return NextResponse.json({ message: "Forbidden: You cannot edit another user's post." }, { status: 403 });
@@ -46,7 +47,7 @@ export async function PUT(req, { params }) {
     const updatedAt = new Date();
 
     // Re-compute Message Authentication Code (MAC) for data integrity
-    const integrityPayload = `${ciphertext}:${post.author.toString()}:${updatedAt.toISOString()}`;
+    const integrityPayload = `${ciphertext}:${authorId}`;
     const newMac = signPayload(integrityPayload);
 
     post.content = ciphertext;
@@ -85,7 +86,8 @@ export async function DELETE(req, { params }) {
       return NextResponse.json({ message: "Post not found." }, { status: 404 });
     }
 
-    const isAuthor = post.author.toString() === session.id;
+    const authorId = post.author ? post.author.toString() : '';
+    const isAuthor = String(authorId) === String(session.id);
     const isAdmin = session.role === 'admin';
     if (!isAuthor && !isAdmin) {
       return NextResponse.json({ message: "Forbidden: You cannot delete another user's post." }, { status: 403 });

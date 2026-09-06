@@ -570,6 +570,10 @@ export default function Posts() {
                 return acc;
               }, {});
 
+              const isAuthor = currentUser && post.author?.id && (String(currentUser.userId) === String(post.author.id));
+              const isAdmin = currentUser && currentUser.role === 'admin';
+              const canUserModify = Boolean(post.canEdit || isAuthor || isAdmin);
+
               return (
                 <div key={post.id} className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3 shadow-md">
                   {/* Header: Author, Role, Date, Key Version, MAC Badge */}
@@ -739,7 +743,7 @@ export default function Posts() {
                         <span className="text-slate-400">Cipher:</span> {post.rawCiphertextPreview}
                       </div>
 
-                      {post.canEdit && editingPostId !== post.id && (
+                      {canUserModify && editingPostId !== post.id && (
                         <div className="flex items-center space-x-1">
                           <button
                             onClick={() => handleEditStart(post)}
