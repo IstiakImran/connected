@@ -6,7 +6,11 @@ import { io } from 'socket.io-client';
 
 const SocketContext = createContext(null);
 
-const MESSAGING_SERVER_URL = process.env.NEXT_PUBLIC_MESSAGING_SERVER_URL || 'http://localhost:5001';
+const MESSAGING_SERVER_URL =
+  process.env.NEXT_PUBLIC_MESSAGING_SERVER_URL ||
+  (typeof window !== 'undefined' && window.location.hostname === 'localhost'
+    ? 'http://localhost:5001'
+    : 'https://cse447-messaging-server.onrender.com');
 
 export function SocketProvider({ children }) {
   const pathname = usePathname();

@@ -270,7 +270,7 @@ function MessagesContent() {
             {isConnected ? (
               <>
                 <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-emerald-300 font-mono">Express Socket.IO Server Live (:5001)</span>
+                <span className="text-emerald-300 font-mono">Express Socket.IO Server Live</span>
               </>
             ) : (
               <>
