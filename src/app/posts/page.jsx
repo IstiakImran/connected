@@ -135,6 +135,7 @@ export default function Posts() {
     setEditingPostId(post.id);
     setEditContent(post.content);
   };
+  const handleEditStart = (post) => handleStartEdit(post);
 
   const handleCancelEdit = () => {
     setEditingPostId(null);
@@ -175,6 +176,7 @@ export default function Posts() {
       setIsUpdating(false);
     }
   };
+  const handleEditSave = (postId) => handleUpdatePost(postId);
 
   const handleDeletePost = async (postId) => {
     if (!confirm('Are you sure you want to delete this encrypted post?')) return;

@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Shield, Key, RefreshCw, Users, ShieldAlert, CheckCircle2, Lock, ArrowRight } from 'lucide-react';
+import { Shield, Key, RefreshCw, Users, ShieldAlert, CheckCircle2, Lock, ArrowRight, Trash2, ShieldCheck, MessageSquare, AlertTriangle } from 'lucide-react';
 
 export default function AdminDashboard() {
   const [adminData, setAdminData] = useState(null);
   const [kmmData, setKmmData] = useState(null);
+  const [postsList, setPostsList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [rotating, setRotating] = useState(false);
   const [message, setMessage] = useState('');
@@ -51,6 +52,15 @@ export default function AdminDashboard() {
       if (usersRes.ok) {
         const uData = await usersRes.json();
         setAdminData(uData);
+      }
+
+      // Fetch posts for moderation
+      const postsRes = await fetch('/api/posts', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (postsRes.ok) {
+        const pData = await postsRes.json();
+        setPostsList(pData.posts || []);
       }
     } catch (err) {
       setError('Failed to fetch admin telemetry: ' + err.message);
@@ -115,6 +125,50 @@ export default function AdminDashboard() {
       }
     } catch (e) {
       setError('Error updating user role');
+    }
+  };
+
+  const handleDeleteUserByAdmin = async (userId, username) => {
+    if (!confirm(`Are you sure you want to permanently delete user @${username}? All their encrypted posts and data will be removed.`)) {
+      return;
+    }
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/admin/users?userId=${userId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setMessage(data.message || `User @${username} deleted.`);
+        fetchData();
+      } else {
+        setError(data.message || 'Failed to delete user.');
+      }
+    } catch (e) {
+      setError('Error deleting user');
+    }
+  };
+
+  const handleDeletePostByAdmin = async (postId) => {
+    if (!confirm('Are you sure you want to delete/moderate this encrypted post as Administrator?')) {
+      return;
+    }
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/posts/${postId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setMessage('Post successfully deleted by Administrator.');
+        fetchData();
+      } else {
+        setError(data.message || 'Failed to delete post.');
+      }
+    } catch (e) {
+      setError('Error deleting post');
     }
   };
 
@@ -304,15 +358,100 @@ export default function AdminDashboard() {
                     <td className="py-3 text-emerald-400 font-mono">Enforced (2FA)</td>
                     <td className="py-3 text-slate-400">{new Date(u.createdAt).toLocaleDateString()}</td>
                     <td className="py-3 text-right">
-                      <button
-                        onClick={() => handleToggleRole(u.id, u.role)}
-                        className="px-2.5 py-1 text-[11px] rounded border border-slate-700 hover:bg-slate-800 transition text-slate-200"
-                      >
-                        Change to {u.role === 'admin' ? 'User' : 'Admin'}
-                      </button>
+                      <div className="flex items-center justify-end space-x-2">
+                        <button
+                          onClick={() => handleToggleRole(u.id, u.role)}
+                          className="px-2.5 py-1 text-[11px] rounded border border-slate-700 hover:bg-slate-800 transition text-slate-200"
+                        >
+                          Change to {u.role === 'admin' ? 'User' : 'Admin'}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteUserByAdmin(u.id, u.username)}
+                          title="Delete User Account"
+                          className="p-1 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded border border-rose-900/40 transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* SECTION 3: Content Moderation & HMAC Integrity Monitor */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4 shadow-lg">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center space-x-1.5">
+              <MessageSquare className="w-4 h-4 text-indigo-400" />
+              <span>Encrypted Posts Moderation & HMAC Data Integrity Monitor</span>
+            </span>
+            <span className="text-xs text-slate-400 font-mono">
+              {postsList.length} Total Posts Monitored
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-800 text-left text-xs">
+              <thead>
+                <tr className="text-slate-400 uppercase font-mono">
+                  <th className="pb-2">Author</th>
+                  <th className="pb-2">Decrypted Content</th>
+                  <th className="pb-2">ECC Key Version</th>
+                  <th className="pb-2">HMAC Integrity</th>
+                  <th className="pb-2">Created</th>
+                  <th className="pb-2 text-right">Admin Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                {postsList.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" className="py-6 text-center text-slate-500">
+                      No posts available for moderation.
+                    </td>
+                  </tr>
+                ) : (
+                  postsList.map((p) => (
+                    <tr key={p.id} className="hover:bg-slate-800/30">
+                      <td className="py-3 font-semibold text-white font-mono">
+                        @{p.author?.username || 'Unknown'}
+                      </td>
+                      <td className="py-3 max-w-xs truncate text-slate-200">
+                        {p.content}
+                      </td>
+                      <td className="py-3 font-mono text-indigo-300">
+                        {p.keyVersion || 'v1'}
+                      </td>
+                      <td className="py-3">
+                        {p.integrityVerified ? (
+                          <span className="inline-flex items-center space-x-1 text-[10px] px-2 py-0.5 bg-emerald-950/70 border border-emerald-700/60 rounded text-emerald-300">
+                            <ShieldCheck className="w-3 h-3" />
+                            <span>MAC Verified</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center space-x-1 text-[10px] px-2 py-0.5 bg-rose-950/70 border border-rose-700/60 rounded text-rose-300">
+                            <ShieldAlert className="w-3 h-3" />
+                            <span>Tamper Alert</span>
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 text-slate-400">
+                        {new Date(p.createdAt).toLocaleDateString()}
+                      </td>
+                      <td className="py-3 text-right">
+                        <button
+                          onClick={() => handleDeletePostByAdmin(p.id)}
+                          className="inline-flex items-center px-2 py-1 text-[11px] rounded bg-rose-950/40 text-rose-300 border border-rose-800/50 hover:bg-rose-900/60 transition"
+                        >
+                          <Trash2 className="w-3 h-3 mr-1" />
+                          Moderate
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

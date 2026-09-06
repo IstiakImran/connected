@@ -94,3 +94,39 @@ export async function PATCH(req) {
     return NextResponse.json({ message: error.message || "Failed to update user role" }, { status: 500 });
   }
 }
+
+export async function DELETE(req) {
+  const authHeader = req.headers.get("Authorization");
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : null;
+
+  if (!token) {
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const session = verifySessionToken(token, req);
+    if (session.role !== 'admin') {
+      return NextResponse.json({ message: "Forbidden: Admin privileges required." }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const userId = searchParams.get('userId');
+
+    if (!userId) {
+      return NextResponse.json({ message: "User ID is required." }, { status: 400 });
+    }
+
+    if (userId === session.id) {
+      return NextResponse.json({ message: "Administrators cannot delete their own account." }, { status: 400 });
+    }
+
+    await dbConnect();
+    await User.findByIdAndDelete(userId);
+    await Post.deleteMany({ author: userId });
+
+    return NextResponse.json({ message: "User account and associated data removed by Administrator." });
+  } catch (error) {
+    console.error("Admin Delete User Error:", error);
+    return NextResponse.json({ message: error.message || "Failed to delete user" }, { status: 500 });
+  }
+}
