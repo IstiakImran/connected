@@ -4,6 +4,8 @@ import { verifySessionToken } from '@/lib/auth';
 import { DirectMessage } from '@/schema/DirectMessage';
 import { NextResponse } from 'next/server';
 
+import mongoose from 'mongoose';
+
 export async function POST(req) {
   const authHeader = req.headers.get('Authorization');
   const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
@@ -22,9 +24,16 @@ export async function POST(req) {
 
     await dbConnect();
 
+    const recipientId = session.userId || session.id;
+    const filter = {
+      sender: mongoose.Types.ObjectId.isValid(senderId) ? new mongoose.Types.ObjectId(senderId) : senderId,
+      recipient: mongoose.Types.ObjectId.isValid(recipientId) ? new mongoose.Types.ObjectId(recipientId) : recipientId,
+      read: false,
+    };
+
     const now = new Date();
     const result = await DirectMessage.updateMany(
-      { sender: senderId, recipient: session.id, read: false },
+      filter,
       {
         $set: {
           read: true,
