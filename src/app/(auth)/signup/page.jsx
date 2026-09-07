@@ -12,7 +12,6 @@ export default function Signup() {
     password: '',
     fullName: '',
     address: '',
-    role: 'user',
   });
   const [step, setStep] = useState(1); // 1 = Registration form, 2 = Nodemailer Email Verification
   const [userId, setUserId] = useState('');
@@ -246,23 +245,7 @@ export default function Signup() {
                   </div>
                 </div>
 
-                <div>
-                  <label htmlFor="role" className="block text-xs font-medium text-slate-300">
-                    Account Role (RBAC)
-                  </label>
-                  <div className="mt-1">
-                    <select
-                      id="role"
-                      name="role"
-                      value={form.role}
-                      onChange={handleChange}
-                      className="block w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-                    >
-                      <option value="user">Regular User (Manage own posts & profile)</option>
-                      <option value="admin">System Administrator (KMM Key Rotation & User Audits)</option>
-                    </select>
-                  </div>
-                </div>
+
 
                 <div className="pt-2">
                   <button

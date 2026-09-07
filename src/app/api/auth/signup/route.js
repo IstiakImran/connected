@@ -8,7 +8,7 @@ import { User } from '@/schema/User';
 
 export async function POST(request) {
   try {
-    const { username, email, password, fullName, address, role } = await request.json();
+    const { username, email, password, fullName, address } = await request.json();
 
     if (!username || !email || !password || !fullName || !address) {
       return NextResponse.json(
@@ -43,7 +43,8 @@ export async function POST(request) {
     const encryptedFullName = await encryptUserField(fullName);
     const encryptedAddress = await encryptUserField(address);
 
-    const assignedRole = role === 'admin' ? 'admin' : 'user';
+    // Enforce user role: self-registration must never grant administrative privileges
+    const assignedRole = 'user';
 
     // Generate 6-digit email verification code for Nodemailer
     const emailVerificationCode = Math.floor(100000 + Math.random() * 900000).toString();
